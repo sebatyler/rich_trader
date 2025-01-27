@@ -29,6 +29,7 @@ from core.llm import invoke_llm
 from core.telegram import send_message
 from core.utils import format_currency
 from core.utils import format_quantity
+from trading.models import Portfolio
 from trading.models import Trading
 from trading.models import TradingConfig
 
@@ -647,22 +648,57 @@ def auto_trading():
             is_markdown=True,
         )
 
+        final_balances = None
+
         # 추천받은 거래 실행
         for recommendation in result.recommendations:
             symbol = recommendation.symbol
             crypto_data = user_crypto_data[symbol]
 
             try:
-                new_balances = execute_trade(
+                execute_trade(
                     config.user,
                     recommendation=recommendation,
                     crypto_data=crypto_data,
                     chat_id=chat_id,
                 )
-                if new_balances:
-                    balances = new_balances
             except Exception as e:
                 logging.exception(f"Error executing trade for {symbol}: {e}")
+
+        # 현재 잔고 가치 저장
+        final_balances = coinone.get_balances()
+
+        krw_balance = int(float(final_balances["KRW"]["available"]))
+        total_coin_value = 0
+        balances = []
+        for symbol, balance in final_balances.items():
+            crypto_data = user_crypto_data.get(symbol)
+            if not crypto_data:
+                continue
+
+            available = Decimal(balance["available"])
+            if available == 0 or float(balance["average_price"]) == 0:
+                continue
+
+            current_price = crypto_data["input_data"]["current_price"]
+            krw_value = int(available * Decimal(current_price))
+            if krw_value < 5000:
+                continue
+
+            balance.update(current_price=current_price, krw_value=krw_value)
+            total_coin_value += krw_value
+            balances.append(balance)
+
+        balances = sorted(balances, key=lambda x: x["krw_value"], reverse=True)
+        total_portfolio_value = krw_balance + total_coin_value
+
+        Portfolio.objects.create(
+            user=config.user,
+            balances=balances,
+            total_portfolio_value=total_portfolio_value,
+            krw_balance=krw_balance,
+            total_coin_value=total_coin_value,
+        )
 
 
 def rebalance_portfolio():

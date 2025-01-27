@@ -6,6 +6,7 @@ from django.db import models
 
 from core.admin import ModelAdmin
 
+from .models import Portfolio
 from .models import Trading
 from .models import TradingConfig
 
@@ -27,7 +28,6 @@ class TradingConfigAdmin(SimpleHistoryAdmin, ModelAdmin):
     list_filter = ("is_active",)
     list_select_related = ("user",)
     search_fields = ("user__username", "user__email", "target_coins")
-    raw_id_fields = ("user",)
     list_display_links = ("id", "user")
 
 
@@ -50,8 +50,17 @@ class TradingAdmin(ModelAdmin):
     list_filter = ("user", "coin", "type", "side", "status")
     list_select_related = ("user",)
     search_fields = ("user__username", "user__email", "coin")
-    raw_id_fields = ("user",)
     list_display_links = ("id", "user")
+    formfield_overrides = {
+        models.JSONField: {"widget": JSONEditorWidget},
+    }
+
+
+@admin.register(Portfolio)
+class PortfolioAdmin(ModelAdmin):
+    list_display = ("id", "user", "total_portfolio_value", "krw_balance", "total_coin_value", "created")
+    list_select_related = ("user",)
+    search_fields = ("user__username", "user__email")
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
