@@ -38,10 +38,10 @@
                         {{ balance.quantity }}
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                        {{ '{:,.0f}'.format(balance.avg_buy_price) if balance.avg_buy_price else '-' }}
+                        {{ balance.avg_buy_price_display if balance.avg_buy_price else '-' }}
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                        {{ '{:,.0f}'.format(balance.current_price) }}
+                        {{ balance.current_price_display }}
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
                         {{ '{:,.0f}'.format(balance.value) }}
