@@ -115,12 +115,14 @@ class UpbitBalanceTemplateView(UpbitMixin, TemplateView):
 
         # float 타입으로 변환
         for balance_dict in data["balances"]:
+            update_dict = {}
             for key, value in balance_dict.items():
                 if key in ("quantity", "avg_buy_price", "current_price"):
                     balance_dict[key] = Decimal(value)
-                    balance_dict[f"{key}_display"] = format_quantity(balance_dict[key])
+                    update_dict[f"{key}_display"] = format_quantity(balance_dict[key])
                 elif isinstance(value, str) and value[0].isdigit():
                     balance_dict[key] = float(value)
+            balance_dict.update(update_dict)
 
         context.update(data)
         return context
