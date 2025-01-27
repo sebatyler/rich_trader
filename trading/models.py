@@ -152,3 +152,11 @@ class Trading(TimeStampedModel):
             .order_by("-id")[:limit]
             .values("coin", "side", "executed_qty", "average_executed_price", "fee", "created")
         ).to_csv(index=False)
+
+
+class Portfolio(TimeStampedModel):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    balances = models.JSONField(default=list)
+    total_portfolio_value = models.PositiveBigIntegerField(help_text="총 포트폴리오 가치 (KRW)")
+    krw_balance = models.PositiveBigIntegerField(help_text="KRW 잔액 (KRW)")
+    total_coin_value = models.PositiveBigIntegerField(help_text="총 코인 가치 (KRW)")
