@@ -38,3 +38,7 @@ def format_quantity(quantity: Decimal) -> str:
         display = display.rstrip("0").rstrip(".")
 
     return display
+
+
+def get_max_length(input_list):
+    return max(map(len, filter(None, input_list)), default=None)
