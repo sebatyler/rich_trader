@@ -106,7 +106,7 @@ def get_available_balances() -> dict:
             }
 
     for symbol, amount in get_staking_coins().items():
-        balances[symbol] = {"quantity": amount, "is_staking": True}
+        balances[f"{symbol}.S"] = {"quantity": amount, "is_staking": True}
 
     return balances
 
@@ -149,11 +149,15 @@ def get_balance_data():
     krw = balances.pop("KRW", {})
     krw_value = float(krw.get("quantity", 0))
     balance_list = []
+    tickers = {}
 
-    for symbol, balance in balances.items():
+    for symbol_raw, balance in balances.items():
+        symbol = symbol_raw.split(".")[0]
+
         # 현재가 조회
-        ticker = get_ticker(symbol)
+        ticker = tickers.get(symbol) or get_ticker(symbol)
         if ticker:
+            tickers[symbol] = ticker
             current_price = ticker[0]["trade_price"]
             quantity = float(balance["quantity"])
             value = quantity * current_price
