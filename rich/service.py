@@ -21,6 +21,7 @@ from django.db.models import Max
 from django.db.models import Min
 from django.db.models import When
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 from core import coinone
 from core import crypto
@@ -902,34 +903,56 @@ def buy_upbit_coins():
     if total_value >= 400_000_000:
         return
 
-    amount = 50_000
-
     coins = {balance["symbol"].split(".")[0] for balance in balances}
+    major_coins = {"BTC", "ETH", "XRP", "SOL"}
+    coin_amounts = {coin: 50_000 if coin in major_coins else 10_000 for coin in coins}
 
     # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
-    required_krw = len(coins) * amount
+    required_krw = sum(coin_amounts.values())
+    logging.info(f"{required_krw=:,} {krw_value=:,.0f}")
     if krw_value < required_krw:
         return
 
     # 코인 구매
-    for coin in coins:
+    for coin, amount in coin_amounts.items():
         last_order = upbit.get_closed_orders(coin, count=1)[0]
         order_detail = upbit.get_order_detail(last_order["uuid"])
         last_buy_price = order_detail["avg_buy_price"]
-        last_buy_at = order_detail["created_at"]
+        last_buy_at = parse_datetime(order_detail["created_at"])
 
         last_candle = upbit.get_candles(coin, count=1)[0]
         last_price = last_candle["trade_price"]
 
-        # 마지막 매수 가격보다 0.1% 이상 하락했을 때만 구매
+        # 마지막 매수한지 1시간 이상 지났고 0.3% 이상 하락했을 때만 구매
         price_change = (last_price - last_buy_price) / last_buy_price * 100
-        should_buy = price_change <= -0.1
+        should_buy = price_change <= -0.3 and last_buy_at < timezone.now() - timedelta(hours=1)
         logging.info(
             f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
         )
 
         if should_buy:
             res = upbit.buy_coin(coin, amount)
-            logging.info(f"{coin}: {res}")
+            logging.info(f"{coin=} {amount=:,} {res=}")
 
+        time.sleep(0.1)
+
+
+def buy_upbit_dca():
+    data = upbit.get_balance_data()
+    balances, krw_value = dict_at(data, "balances", "krw_value")
+
+    coins = {balance["symbol"].split(".")[0] for balance in balances}
+    major_coins = {"BTC", "ETH", "XRP", "SOL"}
+    coin_amounts = {coin: 50_000 if coin in major_coins else 10_000 for coin in coins}
+
+    # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
+    required_krw = sum(coin_amounts.values())
+    logging.info(f"{required_krw=:,} {krw_value=:,.0f}")
+    if krw_value < required_krw:
+        return
+
+    # 코인 구매
+    for coin, amount in coin_amounts.items():
+        res = upbit.buy_coin(coin, amount)
+        logging.info(f"DCA: {coin=} {amount=:,} {res=}")
         time.sleep(0.1)
