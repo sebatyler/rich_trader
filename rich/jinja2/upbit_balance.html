@@ -18,6 +18,7 @@
                     </th>
                     <th class="px-4 py-3 text-right text-sm font-medium text-gray-500 uppercase tracking-wider">수익률</th>
                     <th class="px-4 py-3 text-right text-sm font-medium text-gray-500 uppercase tracking-wider">비중</th>
+                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">코인</th>
                 </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
@@ -52,6 +53,9 @@
                     </td>
                     <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
                         {{ '{:.2f}%'.format(balance.weight) }}
+                    </td>
+                    <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {{ balance.symbol }}
                     </td>
                 </tr>
                 {%- endfor %}
