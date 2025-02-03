@@ -923,9 +923,9 @@ def buy_upbit_coins():
         last_candle = upbit.get_candles(coin, count=1)[0]
         last_price = last_candle["trade_price"]
 
-        # 마지막 매수한지 1시간 이상 지났고 0.3% 이상 하락했을 때만 구매
+        # 마지막 매수한지 1시간 이상 지났고 1% 이상 하락했을 때만 구매
         price_change = (last_price - last_buy_price) / last_buy_price * 100
-        should_buy = price_change <= -0.3 and last_buy_at < timezone.now() - timedelta(hours=1)
+        should_buy = price_change <= -1 and last_buy_at < timezone.now() - timedelta(hours=1)
         logging.info(
             f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
         )
