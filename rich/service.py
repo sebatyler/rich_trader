@@ -904,26 +904,29 @@ def buy_upbit_coins():
 
     amount = 50_000
 
+    coins = {balance["symbol"].split(".")[0] for balance in balances}
+
     # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
-    required_krw = len(balances) * amount
+    required_krw = len(coins) * amount
     if krw_value < required_krw:
         return
 
     # 코인 구매
-    for balance in balances:
-        symbol = balance["symbol"]
-
-        candles = upbit.get_candles(symbol, count=60)
+    for coin in coins:
+        candles = upbit.get_candles(coin, count=60)
         last_candle, *_, first_candle = candles
         last_price = last_candle["trade_price"]
         past_price = first_candle["trade_price"]
 
-        # 60분 전 가격보다 현재 가격이 낮으면 구매
-        should_buy = last_price < past_price
-        logging.info(f"{symbol}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(past_price)}")
+        # 60분 전 가격보다 0.1% 이상 하락했을 때만 구매
+        price_change = (last_price - past_price) / past_price * 100
+        should_buy = price_change <= -0.1
+        logging.info(
+            f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(past_price)} ({price_change:.2f}%)"
+        )
 
         if should_buy:
-            res = upbit.buy_coin(symbol, amount)
-            logging.info(f"{symbol}: {res}")
+            res = upbit.buy_coin(coin, amount)
+            logging.info(f"{coin}: {res}")
 
         time.sleep(1 / 8)
