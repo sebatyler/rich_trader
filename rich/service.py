@@ -913,20 +913,23 @@ def buy_upbit_coins():
 
     # 코인 구매
     for coin in coins:
-        candles = upbit.get_candles(coin, count=60)
-        last_candle, *_, first_candle = candles
-        last_price = last_candle["trade_price"]
-        past_price = first_candle["trade_price"]
+        last_order = upbit.get_closed_orders(coin, count=1)[0]
+        order_detail = upbit.get_order_detail(last_order["uuid"])
+        last_buy_price = order_detail["avg_buy_price"]
+        last_buy_at = order_detail["created_at"]
 
-        # 60분 전 가격보다 0.1% 이상 하락했을 때만 구매
-        price_change = (last_price - past_price) / past_price * 100
+        last_candle = upbit.get_candles(coin, count=1)[0]
+        last_price = last_candle["trade_price"]
+
+        # 마지막 매수 가격보다 0.1% 이상 하락했을 때만 구매
+        price_change = (last_price - last_buy_price) / last_buy_price * 100
         should_buy = price_change <= -0.1
         logging.info(
-            f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(past_price)} ({price_change:.2f}%)"
+            f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
         )
 
         if should_buy:
             res = upbit.buy_coin(coin, amount)
             logging.info(f"{coin}: {res}")
 
-        time.sleep(1 / 8)
+        time.sleep(0.1)

@@ -135,9 +135,27 @@ def get_candles(symbol: str, count: int = 60):
     )
 
 
-def get_closed_orders(symbol: str):
+def get_closed_orders(symbol: str, count: int = 20):
     """완료된 주문 조회"""
-    return _request("/v1/orders/closed", params={"market": f"KRW-{symbol}"})
+    return _request("/v1/orders/closed", params={"market": f"KRW-{symbol}", "count": count})
+
+
+def get_order_detail(uuid: str, add_buy_price: bool = True):
+    """주문 상세 조회"""
+    result = _request("/v1/order", params={"uuid": uuid})
+
+    if add_buy_price:
+        total_volume = 0
+        total_value = 0
+        for trade in result["trades"]:
+            volume = Decimal(trade["volume"])
+            value = volume * Decimal(trade["price"])
+            total_volume += volume
+            total_value += value
+
+        result["avg_buy_price"] = float(total_value / total_volume)
+
+    return result
 
 
 def get_balance_data():
