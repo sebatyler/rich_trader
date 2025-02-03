@@ -58,9 +58,23 @@ class TradingAdmin(ModelAdmin):
 
 @admin.register(Portfolio)
 class PortfolioAdmin(ModelAdmin):
-    list_display = ("id", "user", "total_portfolio_value", "krw_balance", "total_coin_value", "created")
+    list_display = (
+        "id",
+        "exchange",
+        "user",
+        "total_portfolio_value",
+        "krw_balance",
+        "total_coin_value",
+        "krw_weight",
+        "created",
+    )
     list_select_related = ("user",)
+    list_filter = ("exchange", "user")
     search_fields = ("user__username", "user__email")
     formfield_overrides = {
         models.JSONField: {"widget": JSONEditorWidget},
     }
+    readonly_fields = ("krw_weight", "created")
+
+    def krw_weight(self, obj):
+        return f"{obj.krw_weight:.2f}%"

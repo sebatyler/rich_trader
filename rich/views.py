@@ -3,12 +3,15 @@ from decimal import Decimal
 from django.http import HttpResponse
 from django.http import JsonResponse
 from django.template.loader import render_to_string
+from django.utils import timezone
 from django.views import View
 from django.views.generic import TemplateView
 
 from core import upbit
+from core.choices import ExchangeChoices
 from core.utils import format_quantity
 from trading.forms import TradingConfigForm
+from trading.models import Portfolio
 from trading.models import TradingConfig
 
 
@@ -57,6 +60,11 @@ class UpbitMixin(View):
         return super().dispatch(request, *args, **kwargs)
 
     def get_upbit_data(self):
+        now = timezone.now()
+        portfolio = Portfolio.objects.filter(exchange=ExchangeChoices.UPBIT).order_by("-id").first()
+        if portfolio and now.isoformat(timespec="minutes") == portfolio.created.isoformat(timespec="minutes"):
+            return portfolio.export()
+
         return upbit.get_balance_data()
 
 

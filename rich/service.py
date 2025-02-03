@@ -26,6 +26,7 @@ from django.utils.dateparse import parse_datetime
 from core import coinone
 from core import crypto
 from core import upbit
+from core.choices import ExchangeChoices
 from core.llm import invoke_gemini_search
 from core.llm import invoke_llm
 from core.telegram import send_message
@@ -935,6 +936,15 @@ def buy_upbit_coins():
             logging.info(f"{coin=} {amount=:,} {res=}")
 
         time.sleep(0.1)
+
+    data = upbit.get_balance_data()
+    Portfolio.objects.create(
+        exchange=ExchangeChoices.UPBIT,
+        balances=data["balances"],
+        total_portfolio_value=data["total_value"],
+        krw_balance=data["krw_value"],
+        total_coin_value=data["total_coin_value"],
+    )
 
 
 def buy_upbit_dca():

@@ -9,6 +9,8 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from accounts.models import User
+from core.choices import ExchangeChoices
+from core.models import choice_field
 
 
 class TradingConfig(TimeStampedModel):
@@ -155,8 +157,22 @@ class Trading(TimeStampedModel):
 
 
 class Portfolio(TimeStampedModel):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    exchange = choice_field(ExchangeChoices, default=ExchangeChoices.COINONE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
     balances = models.JSONField(default=list)
     total_portfolio_value = models.PositiveBigIntegerField(help_text="총 포트폴리오 가치 (KRW)")
     krw_balance = models.PositiveBigIntegerField(help_text="KRW 잔액 (KRW)")
     total_coin_value = models.PositiveBigIntegerField(help_text="총 코인 가치 (KRW)")
+
+    @property
+    def krw_weight(self):
+        return self.krw_balance / self.total_portfolio_value * 100
+
+    def export(self):
+        return {
+            "balances": self.balances,
+            "total_coin_value": self.total_coin_value,
+            "krw_value": self.krw_balance,
+            "krw_weight": self.krw_weight,
+            "total_value": self.total_portfolio_value,
+        }
