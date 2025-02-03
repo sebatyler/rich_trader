@@ -912,7 +912,18 @@ def buy_upbit_coins():
     # 코인 구매
     for balance in balances:
         symbol = balance["symbol"]
-        res = upbit.buy_coin(symbol, amount)
-        logging.info(f"{symbol}: {res}")
-        # 초당 8회 제한 있음
+
+        candles = upbit.get_candles(symbol, count=60)
+        last_candle, *_, first_candle = candles
+        last_price = last_candle["trade_price"]
+        past_price = first_candle["trade_price"]
+
+        # 60분 전 가격보다 현재 가격이 낮으면 구매
+        should_buy = last_price < past_price
+        logging.info(f"{symbol}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(past_price)}")
+
+        if should_buy:
+            res = upbit.buy_coin(symbol, amount)
+            logging.info(f"{symbol}: {res}")
+
         time.sleep(1 / 8)

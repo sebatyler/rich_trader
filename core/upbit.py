@@ -127,6 +127,19 @@ def buy_coin(symbol: str, amount: int):
     return _request("/v1/orders", method="POST", params=params)
 
 
+def get_candles(symbol: str, count: int = 60):
+    """분단위 캔들 조회"""
+    return _request(
+        "/v1/candles/minutes/1",
+        params={"market": f"KRW-{symbol}", "count": count},
+    )
+
+
+def get_closed_orders(symbol: str):
+    """완료된 주문 조회"""
+    return _request("/v1/orders/closed", params={"market": f"KRW-{symbol}"})
+
+
 def get_balance_data():
     # 업비트 잔고 조회
     balances = get_available_balances()
