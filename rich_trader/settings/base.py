@@ -203,5 +203,5 @@ if ENV != "test":
 
 # Crontab 설정
 CRONJOBS = [
-    ("30 * * * *", "rich.service.buy_upbit_coins", ">> /tmp/buy_upbit_coins.log 2>&1"),
+    ("*/5 * * * *", "rich.service.buy_upbit_coins", ">> /tmp/buy_upbit_coins.log 2>&1"),
 ]
