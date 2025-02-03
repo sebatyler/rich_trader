@@ -4,8 +4,26 @@
 <div class="container mx-auto px-4 py-8">
     <h1 class="text-2xl font-bold mb-6">업비트 잔고 현황</h1>
 
+    <!-- 합계 정보 -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-700 mb-2">총 자산</h3>
+            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(total_value) }}원</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-700 mb-2">코인 자산</h3>
+            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(total_coin_value) }}원</p>
+            <p class="text-md text-gray-600 mt-1">{{ '{:.2f}%'.format(total_coin_value / total_value * 100) }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6">
+            <h3 class="text-lg font-semibold text-gray-700 mb-2">원화 잔고</h3>
+            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(krw_value) }}원</p>
+            <p class="text-md text-gray-600 mt-1">{{ '{:.2f}%'.format(krw_weight) }}</p>
+        </div>
+    </div>
+
     <!-- 잔고 테이블 -->
-    <div class="overflow-x-auto bg-white rounded-lg shadow mb-8">
+    <div class="overflow-x-auto bg-white rounded-lg shadow">
         <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
                 <tr>
@@ -61,24 +79,6 @@
                 {%- endfor %}
             </tbody>
         </table>
-    </div>
-
-    <!-- 합계 정보 -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="text-lg font-semibold text-gray-700 mb-2">코인 자산</h3>
-            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(total_coin_value) }}원</p>
-            <p class="text-md text-gray-600 mt-1">{{ '{:.2f}%'.format(total_coin_value / total_value * 100) }}</p>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="text-lg font-semibold text-gray-700 mb-2">원화 잔고</h3>
-            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(krw_value) }}원</p>
-            <p class="text-md text-gray-600 mt-1">{{ '{:.2f}%'.format(krw_weight) }}</p>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="text-lg font-semibold text-gray-700 mb-2">총 자산</h3>
-            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(total_value) }}원</p>
-        </div>
     </div>
 </div>
 {% endblock %}
