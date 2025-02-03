@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import time
 from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
@@ -27,6 +28,7 @@ from core import upbit
 from core.llm import invoke_gemini_search
 from core.llm import invoke_llm
 from core.telegram import send_message
+from core.utils import dict_at
 from core.utils import format_currency
 from core.utils import format_quantity
 from trading.models import Portfolio
@@ -890,3 +892,27 @@ Requirements:
     result = invoke_gemini_search(prompt, system_instruction)
     print(result)
     return result
+
+
+def buy_upbit_coins():
+    data = upbit.get_balance_data()
+    balances, total_value, krw_value = dict_at(data, "balances", "total_value", "krw_value")
+
+    # 총 자산이 4억 원 이상이면 구매 중지
+    if total_value >= 400_000_000:
+        return
+
+    amount = 50_000
+
+    # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
+    required_krw = len(balances) * amount
+    if krw_value < required_krw:
+        return
+
+    # 코인 구매
+    for balance in balances:
+        symbol = balance["symbol"]
+        res = upbit.buy_coin(symbol, amount)
+        logging.info(f"{symbol}: {res}")
+        # 초당 8회 제한 있음
+        time.sleep(1 / 8)

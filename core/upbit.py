@@ -114,3 +114,55 @@ def get_available_balances() -> dict:
 def get_ticker(ticker):
     data = _request("/v1/ticker", params={"markets": f"KRW-{ticker}"})
     return [dict_omit(row, "market") for row in data]
+
+
+def buy_coin(symbol: str, amount: int):
+    """코인 매수"""
+    params = {
+        "market": f"KRW-{symbol}",
+        "side": "bid",
+        "ord_type": "price",
+        "price": amount,
+    }
+    return _request("/v1/orders", method="POST", params=params)
+
+
+def get_balance_data():
+    # 업비트 잔고 조회
+    balances = get_available_balances()
+
+    # 총 자산 가치 계산을 위해 현재가 조회
+    total_coin_value = 0
+    krw = balances.pop("KRW", {})
+    krw_value = float(krw.get("quantity", 0))
+    balance_list = []
+
+    for symbol, balance in balances.items():
+        # 현재가 조회
+        ticker = get_ticker(symbol)
+        if ticker:
+            current_price = ticker[0]["trade_price"]
+            quantity = float(balance["quantity"])
+            value = quantity * current_price
+
+            if value >= 5000:
+                balance["current_price"] = current_price
+                balance["value"] = value
+                balance["symbol"] = symbol
+                total_coin_value += value
+                balance_list.append(balance)
+
+    total_value = total_coin_value + krw_value
+
+    for balance in balance_list:
+        balance["weight"] = balance["value"] / total_value * 100
+
+    sorted_balances = sorted(balance_list, key=lambda x: x["value"], reverse=True)
+
+    return {
+        "balances": sorted_balances,
+        "total_coin_value": total_coin_value,
+        "krw_value": krw_value,
+        "krw_weight": krw_value / total_value * 100,
+        "total_value": total_value,
+    }

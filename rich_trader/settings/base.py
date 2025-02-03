@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django_extensions",
     "django_json_widget",
+    "django_crontab",
     "simple_history",
     "rich",
     "accounts",
@@ -198,3 +199,9 @@ if ENV != "test":
 
     cred = credentials.Certificate(firebase_cert_path)
     firebase_admin.initialize_app(cred)
+
+
+# Crontab 설정
+CRONJOBS = [
+    ("30 * * * *", "rich.service.buy_upbit_coins", ">> /tmp/buy_upbit_coins.log 2>&1"),
+]

@@ -95,11 +95,14 @@ django==5.1.4
     # via
     #   -r requirements.in
     #   dj-database-url
+    #   django-crontab
     #   django-extensions
     #   django-model-utils
     #   django-simple-history
     #   django-storages
     #   sentry-sdk
+django-crontab==0.7.1
+    # via -r requirements.in
 django-dotenv==1.4.2
     # via -r requirements.in
 django-extensions==3.2.3
@@ -377,7 +380,7 @@ pyproject-hooks==1.0.0
     # via
     #   build
     #   pip-tools
-pytest==8.3.3
+pytest==8.3.4
     # via
     #   -r requirements.in
     #   pytest-cov
