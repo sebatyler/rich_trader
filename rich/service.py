@@ -36,6 +36,7 @@ from core.utils import format_quantity
 from trading.models import Portfolio
 from trading.models import Trading
 from trading.models import TradingConfig
+from trading.models import UpbitTrading
 
 from .models import CryptoListing
 
@@ -916,13 +917,21 @@ def buy_upbit_coins():
 
     # 코인 구매
     for coin, amount in coin_amounts.items():
-        last_order = upbit.get_closed_orders(coin, count=1)[0]
-        order_detail = upbit.get_order_detail(last_order["uuid"])
-        last_buy_price = order_detail["avg_buy_price"]
-        last_buy_at = parse_datetime(order_detail["created_at"])
+        last_trading = next(
+            (
+                UpbitTrading.objects.filter(coin=coin, is_dca=is_dca).order_by("-created").first()
+                for is_dca in (False, True)
+            ),
+            None,
+        )
+        if not last_trading:
+            continue
+
+        last_buy_price = last_trading.average_price
+        last_buy_at = last_trading.created
 
         last_candle = upbit.get_candles(coin, count=1)[0]
-        last_price = last_candle["trade_price"]
+        last_price = Decimal(last_candle["trade_price"])
 
         # 마지막 매수한지 1시간 이상 지났고 1% 이상 하락했을 때만 구매
         price_change = (last_price - last_buy_price) / last_buy_price * 100
@@ -934,6 +943,16 @@ def buy_upbit_coins():
         if should_buy:
             res = upbit.buy_coin(coin, amount)
             logging.info(f"{coin=} {amount=:,} {res=}")
+
+            uuid = res["uuid"]
+            detail = upbit.get_order_detail(uuid)
+            UpbitTrading.objects.create(
+                coin=coin,
+                amount=amount,
+                uuid=uuid,
+                state=detail["state"],
+                order_detail=detail,
+            )
 
         time.sleep(0.1)
 
@@ -965,4 +984,16 @@ def buy_upbit_dca():
     for coin, amount in coin_amounts.items():
         res = upbit.buy_coin(coin, amount)
         logging.info(f"DCA: {coin=} {amount=:,} {res=}")
+
+        uuid = res["uuid"]
+        detail = upbit.get_order_detail(uuid)
+        UpbitTrading.objects.create(
+            is_dca=True,
+            coin=coin,
+            amount=amount,
+            uuid=uuid,
+            state=detail["state"],
+            order_detail=detail,
+        )
+
         time.sleep(0.1)
