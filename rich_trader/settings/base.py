@@ -203,7 +203,7 @@ if ENV != "test":
 
 # Crontab 설정
 CRONJOBS = [
-    ("*/10 * * * *", "rich.service.buy_upbit_coins", ">> /tmp/buy_upbit_coins.log 2>&1"),
+    ("*/5 * * * *", "rich.service.buy_upbit_coins", ">> /tmp/buy_upbit_coins.log 2>&1"),
     ("0 21 * * *", "rich.service.buy_upbit_dca", ">> /tmp/buy_upbit_dca.log 2>&1"),
 ]
 CRONTAB_COMMAND_PREFIX = "USE_DB_URL=1"
