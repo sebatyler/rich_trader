@@ -9,6 +9,11 @@ from core.admin import ModelAdmin
 from .models import Portfolio
 from .models import Trading
 from .models import TradingConfig
+from .models import UpbitTrading
+
+formfield_overrides = {
+    models.JSONField: {"widget": JSONEditorWidget},
+}
 
 
 @admin.register(TradingConfig)
@@ -51,9 +56,7 @@ class TradingAdmin(ModelAdmin):
     list_select_related = ("user",)
     search_fields = ("user__username", "user__email", "coin")
     list_display_links = ("id", "user")
-    formfield_overrides = {
-        models.JSONField: {"widget": JSONEditorWidget},
-    }
+    formfield_overrides = formfield_overrides
 
 
 @admin.register(Portfolio)
@@ -71,10 +74,24 @@ class PortfolioAdmin(ModelAdmin):
     list_select_related = ("user",)
     list_filter = ("exchange", "user")
     search_fields = ("user__username", "user__email")
-    formfield_overrides = {
-        models.JSONField: {"widget": JSONEditorWidget},
-    }
+    formfield_overrides = formfield_overrides
     readonly_fields = ("krw_weight", "created")
 
     def krw_weight(self, obj):
         return f"{obj.krw_weight:.2f}%"
+
+
+@admin.register(UpbitTrading)
+class UpbitTradingAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "coin",
+        "amount",
+        "is_dca",
+        "paid_fee",
+        "executed_volume",
+        "average_price",
+        "created",
+    )
+    list_filter = ("coin", "is_dca")
+    formfield_overrides = formfield_overrides

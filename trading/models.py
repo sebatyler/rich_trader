@@ -176,3 +176,41 @@ class Portfolio(TimeStampedModel):
             "krw_weight": self.krw_weight,
             "total_value": self.total_portfolio_value,
         }
+
+
+class UpbitTrading(TimeStampedModel):
+    coin = models.CharField(max_length=20)
+    amount = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True, help_text="주문 금액 (KRW)")
+    is_dca = models.BooleanField(default=False, help_text="DCA 여부")
+    uuid = models.CharField(max_length=100)
+    state = models.CharField(max_length=20)
+    paid_fee = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True, help_text="수수료 (KRW)")
+    executed_volume = models.DecimalField(
+        max_digits=17, decimal_places=8, null=True, blank=True, help_text="체결된 수량"
+    )
+    average_price = models.DecimalField(
+        max_digits=17, decimal_places=8, null=True, blank=True, help_text="체결된 평균 가격"
+    )
+
+    order_detail = models.JSONField(default=dict)
+
+    def save(self, *args, **kwargs):
+        is_adding = self._state.adding
+
+        if is_adding:
+            if self.order_detail:
+                for detail_field, model_field in (
+                    ("paid_fee", "paid_fee"),
+                    ("executed_volume", "executed_volume"),
+                    ("avg_buy_price", "average_price"),
+                ):
+                    if getattr(self, model_field) is None:
+                        setattr(self, model_field, self.order_detail.get(detail_field))
+
+            for field in self._meta.fields:
+                if isinstance(field, models.DecimalField):
+                    value = getattr(self, field.name)
+                    if value is not None and not isinstance(value, Decimal):
+                        setattr(self, field.name, Decimal(str(value)))
+
+        super().save(*args, **kwargs)
