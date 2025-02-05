@@ -175,6 +175,7 @@ class Portfolio(TimeStampedModel):
             "krw_value": self.krw_balance,
             "krw_weight": self.krw_weight,
             "total_value": self.total_portfolio_value,
+            "created": self.created,
         }
 
 

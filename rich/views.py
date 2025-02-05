@@ -60,9 +60,8 @@ class UpbitMixin(View):
         return super().dispatch(request, *args, **kwargs)
 
     def get_upbit_data(self):
-        now = timezone.now()
         portfolio = Portfolio.objects.filter(exchange=ExchangeChoices.UPBIT).order_by("-id").first()
-        if portfolio and now.isoformat(timespec="minutes") == portfolio.created.isoformat(timespec="minutes"):
+        if portfolio:
             return portfolio.export()
 
         return upbit.get_balance_data()
