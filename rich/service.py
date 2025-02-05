@@ -980,13 +980,27 @@ def buy_upbit_dca():
     if krw_value < required_krw:
         return
 
+    today = timezone.localdate()
+
     # 코인 구매
     for coin, amount in coin_amounts.items():
+        # 오늘 이미 매수한 코인이면 매수 안함
+        if UpbitTrading.objects.filter(coin=coin, is_dca=True, created__date=today).exists():
+            continue
+
         res = upbit.buy_coin(coin, amount)
         logging.info(f"DCA: {coin=} {amount=:,} {res=}")
 
         uuid = res["uuid"]
-        detail = upbit.get_order_detail(uuid)
+
+        # trades_count가 0이면 주문 체결 안된 것으로 판단
+        for _ in range(10):
+            detail = upbit.get_order_detail(uuid)
+            if detail["trades_count"] > 0:
+                break
+
+            time.sleep(0.1)
+
         UpbitTrading.objects.create(
             is_dca=True,
             coin=coin,

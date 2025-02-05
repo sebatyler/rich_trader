@@ -153,7 +153,7 @@ def get_order_detail(uuid: str, add_buy_price: bool = True):
             total_volume += volume
             total_value += value
 
-        result["avg_buy_price"] = float(total_value / total_volume)
+        result["avg_buy_price"] = float(total_value / total_volume) if total_value and total_volume else None
 
     return result
 
