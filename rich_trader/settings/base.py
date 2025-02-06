@@ -201,9 +201,9 @@ if ENV != "test":
     firebase_admin.initialize_app(cred)
 
 
-# Crontab 설정
+# Crontab 설정: 한국 시간으로 설정
 CRONJOBS = [
     ("*/5 * * * *", "rich.service.buy_upbit_coins", ">> /tmp/buy_upbit_coins.log 2>&1"),
-    ("0 21 * * *", "rich.service.buy_upbit_dca", ">> /tmp/buy_upbit_dca.log 2>&1"),
+    ("0 6 * * *", "rich.service.buy_upbit_dca", ">> /tmp/buy_upbit_dca.log 2>&1"),
 ]
 CRONTAB_COMMAND_PREFIX = "USE_DB_URL=1"
