@@ -898,6 +898,25 @@ Requirements:
 
 
 def buy_upbit_coins():
+    now = timezone.localtime()
+
+    # 오전 6시에는 DCA 매수
+    if now.hour == 6 and now.minute < 5:
+        _buy_upbit_dca()
+    else:
+        _buy_upbit_coins()
+
+    data = upbit.get_balance_data()
+    Portfolio.objects.create(
+        exchange=ExchangeChoices.UPBIT,
+        balances=data["balances"],
+        total_portfolio_value=data["total_value"],
+        krw_balance=data["krw_value"],
+        total_coin_value=data["total_coin_value"],
+    )
+
+
+def _buy_upbit_coins():
     data = upbit.get_balance_data()
     balances, total_value, krw_value = dict_at(data, "balances", "total_value", "krw_value")
 
@@ -956,17 +975,8 @@ def buy_upbit_coins():
 
         time.sleep(0.1)
 
-    data = upbit.get_balance_data()
-    Portfolio.objects.create(
-        exchange=ExchangeChoices.UPBIT,
-        balances=data["balances"],
-        total_portfolio_value=data["total_value"],
-        krw_balance=data["krw_value"],
-        total_coin_value=data["total_coin_value"],
-    )
 
-
-def buy_upbit_dca():
+def _buy_upbit_dca():
     data = upbit.get_balance_data()
     balances, krw_value = dict_at(data, "balances", "krw_value")
 
