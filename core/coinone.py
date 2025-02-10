@@ -86,8 +86,8 @@ def _order(ticker, side, amount=None, quantity=None, limit_price=None) -> OrderR
 
         payload["qty"] = quantity
 
-    if limit_price:
-        payload["limit_price"] = limit_price
+    # if limit_price:
+    #     payload["limit_price"] = limit_price
 
     data = get_response(action="/v2.1/order", payload=payload)
     return OrderResponse(**data)
