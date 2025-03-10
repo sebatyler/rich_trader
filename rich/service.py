@@ -916,6 +916,12 @@ def buy_upbit_coins():
     )
 
 
+def get_coin_amounts(coins):
+    major_coins = {"BTC", "ETH", "XRP", "SOL"}
+    # TODO: django constance
+    return {coin: 20_000 if coin in major_coins else 10_000 for coin in coins}
+
+
 def _buy_upbit_coins():
     data = upbit.get_balance_data()
     balances, total_value, krw_value = dict_at(data, "balances", "total_value", "krw_value")
@@ -925,8 +931,7 @@ def _buy_upbit_coins():
         return
 
     coins = {balance["symbol"].split(".")[0] for balance in balances}
-    major_coins = {"BTC", "ETH", "XRP", "SOL"}
-    coin_amounts = {coin: 50_000 if coin in major_coins else 10_000 for coin in coins}
+    coin_amounts = get_coin_amounts(coins)
 
     # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
     required_krw = sum(coin_amounts.values())
@@ -989,8 +994,7 @@ def _buy_upbit_dca():
     balances, krw_value = dict_at(data, "balances", "krw_value")
 
     coins = {balance["symbol"].split(".")[0] for balance in balances}
-    major_coins = {"BTC", "ETH", "XRP", "SOL"}
-    coin_amounts = {coin: 50_000 if coin in major_coins else 10_000 for coin in coins}
+    coin_amounts = get_coin_amounts(coins)
 
     # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
     required_krw = sum(coin_amounts.values())
