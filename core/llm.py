@@ -20,10 +20,13 @@ chat_anthropic = ChatAnthropic(
     max_retries=0,
 )
 
+# https://ai.google.dev/gemini-api/docs/models
+# https://ai.google.dev/gemini-api/docs/rate-limits
 gemini_models = [
-    "gemini-exp-1206",
-    "gemini-2.0-flash-exp",
-    "gemini-2.0-flash-thinking-exp-1219",
+    "gemini-2.5-pro-exp-03-25",
+    # "gemini-exp-1206",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-thinking-exp-01-21",
 ]
 
 chat_gemini_models = [
