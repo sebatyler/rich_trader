@@ -31,7 +31,7 @@ def get_signature(encoded_payload):
     return signature.hexdigest()
 
 
-def get_response(action, method="post", payload=None, public=False):
+def get_response(action, method="post", payload=None, query=None, public=False):
     url = f"https://api.coinone.co.kr/{action.lstrip('/')}"
 
     headers = {"Accept": "application/json"}
@@ -44,7 +44,7 @@ def get_response(action, method="post", payload=None, public=False):
             }
         )
 
-    response = requests.request(method, url, headers=headers, json=payload)
+    response = requests.request(method, url, headers=headers, json=payload, params=query)
     return response.json()
 
 
@@ -116,3 +116,46 @@ def get_order_detail(order_id, target_currency):
 def get_markets():
     data = get_response(action="/public/v2/markets/KRW", method="get", public=True)
     return {market["target_currency"]: market for market in data["markets"]}
+
+
+def get_candles(ticker: str, interval: str, size: int = 200):
+    """코인원 캔들차트 데이터를 조회합니다.
+    :param ticker: 조회할 종목 (예: BTC, SOL)
+    :param interval: 캔들 간격 (예: 1m, 5m, 1h 등)
+    :param size: 조회할 캔들 수 (최소 1~최대 500) 미입력시 default: 200
+    :return: 캔들 데이터 JSON 응답
+    """
+    return get_response(
+        action=f"/public/v2/chart/KRW/{ticker}",
+        method="get",
+        query={"interval": interval, "size": size},
+        public=True,
+    )
+
+
+def get_orderbook(ticker: str, size: int = 15):
+    """코인원 오더북 데이터를 조회합니다.
+    :param ticker: 조회할 종목 (예: BTC, SOL)
+    :param size: 오더북 개수 (예: 5, 10, 15, 16만 허용. 기본 15)
+    :return: 오더북 데이터 JSON 응답
+    """
+    return get_response(
+        action=f"/public/v2/orderbook/KRW/{ticker}",
+        method="get",
+        query={"size": size},
+        public=True,
+    )
+
+
+def get_trades(ticker: str, size: int = 200):
+    """코인원 최근 체결 데이터를 조회합니다.
+    :param ticker: 조회할 종목 (예: BTC, SOL)
+    :param size: 최근 체결 개수 (예: 10, 50, 100, 150, 200만 허용. 기본 200)
+    :return: 최근 체결 데이터 JSON 응답
+    """
+    return get_response(
+        action=f"/public/v2/trades/KRW/{ticker}",
+        method="get",
+        public=True,
+        query={"size": size},
+    )
