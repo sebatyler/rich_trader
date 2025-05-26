@@ -21,18 +21,23 @@ from django.db.models import Max
 from django.db.models import Min
 from django.db.models import When
 from django.utils import timezone
-from django.utils.dateparse import parse_datetime
 
+import core.coinone as coinone
+import core.trading_algorithm as ta
+from accounts.models import User
 from core import coinone
 from core import crypto
 from core import upbit
 from core.choices import ExchangeChoices
 from core.llm import invoke_gemini_search
 from core.llm import invoke_llm
+from core.parameter_optimization import create_optimization_payload
+from core.parameter_optimization import request_optimized_parameters
 from core.telegram import send_message
 from core.utils import dict_at
 from core.utils import format_currency
 from core.utils import format_quantity
+from trading.models import AlgorithmParameter
 from trading.models import Portfolio
 from trading.models import Trading
 from trading.models import TradingConfig
@@ -1033,3 +1038,232 @@ def _buy_upbit_dca():
         )
 
         time.sleep(0.1)
+
+
+# ======================================================================
+# Auto trading function for BTC executed every minute
+
+
+def auto_trade_btc():
+    """
+    매분 BTC의 캔들차트, 오더북, 최근 체결, 잔고, 최근 거래내역, 알고리즘 파라미터, 수익률을 모두 활용해 알고리즘 트레이딩을 수행합니다.
+
+    1. 데이터 수집 및 기술적 지표 계산
+    2. 매매 신호 생성 (RSI + 볼린저 밴드)
+    3. 오더북 분석을 통한 매수/매도 가격 결정
+    4. 손절/이익실현 조건 확인
+    5. 주문 실행 및 결과 처리
+    6. 파라미터 최적화 (일 1회)
+    """
+    try:
+        config = TradingConfig.objects.get(user__is_superuser=True)
+    except TradingConfig.DoesNotExist:
+        return
+
+    user = config.user
+    coinone.init(access_key=config.coinone_access_key, secret_key=config.coinone_secret_key)
+
+    # 1. 데이터 수집
+    ticker = coinone.get_ticker("BTC")
+    current_price = float(ticker.get("trade_price") or ticker.get("last") or 0)
+
+    # 캔들차트 데이터 (15분봉 기준)
+    candle_data = coinone.get_candles("BTC", "15m", size=100)
+    candles = candle_data.get("chart", [])
+    prices = [float(c["close"]) for c in candles if "close" in c]
+
+    # 오더북과 최근 체결
+    orderbook = coinone.get_orderbook("BTC")
+    # trades = coinone.get_trades("BTC")
+
+    # 잔고 확인
+    balances = coinone.get_balances()
+    krw_available = float(balances.get("KRW", {}).get("available") or 0)
+    btc_data = balances.get("BTC", {})
+    btc_available = float(btc_data.get("available") or 0)
+    btc_avg_price = float(btc_data.get("average_price") or 0)
+
+    # 최근 거래 내역
+    # recent_trades_csv = Trading.get_recent_trades_csv(user)
+
+    # 현재 알고리즘 파라미터 불러오기
+    algo_param = AlgorithmParameter.objects.filter(user=user).order_by("-id").first()
+    if not algo_param:
+        algo_param = AlgorithmParameter.objects.create(user=user)
+
+    # 2. 기술적 지표 계산
+    if len(prices) < max(algo_param.rsi_period, algo_param.bollinger_period):
+        return
+
+    rsi_values = ta.calculate_rsi(prices, period=algo_param.rsi_period)
+    latest_rsi = rsi_values[-1]
+    middle, upper, lower = ta.calculate_bollinger_bands(
+        prices, period=algo_param.bollinger_period, num_std=float(algo_param.bollinger_std)
+    )
+
+    logging.info(f"{latest_rsi=} {upper=} {lower=}")
+
+    # 3. 오더북 분석
+    bids = orderbook.get("bids", [])
+    asks = orderbook.get("asks", [])
+
+    # 매수/매도 호가 분석
+    bid_prices = [float(bid["price"]) for bid in bids]
+    ask_prices = [float(ask["price"]) for ask in asks]
+    bid_volumes = [float(bid["qty"]) for bid in bids]
+    ask_volumes = [float(ask["qty"]) for ask in asks]
+
+    # 매수/매도 압력 계산
+    total_bid_volume = sum(bid_volumes[:5])  # 상위 5호가
+    total_ask_volume = sum(ask_volumes[:5])  # 상위 5호가
+    buy_pressure = (
+        total_bid_volume / (total_bid_volume + total_ask_volume) if total_bid_volume + total_ask_volume > 0 else 0.5
+    )
+
+    # 4. 매매 신호 생성
+    signal = ta.generate_trade_signal(current_price, latest_rsi, upper, lower)
+
+    logging.info(f"{signal=}")
+
+    # 5. 평균매입가 기반으로 실시간 수익률 계산
+    btc_invested = btc_available * btc_avg_price
+    btc_now = btc_available * current_price
+    if btc_invested > 0:
+        profit_rate = (btc_now - btc_invested) / btc_invested * 100
+    else:
+        profit_rate = 0
+
+    logging.info(f"{btc_available=} {btc_avg_price=} {current_price=} {profit_rate=}")
+
+    # 6. 매매 로직
+    # 보유 중인 BTC가 있는 경우 손절/이익실현 확인
+    if btc_available > 0:
+        stop_loss_signal = ta.check_stop_loss_take_profit(
+            btc_avg_price,
+            current_price,
+            stop_loss_pct=algo_param.stop_loss_pct,
+            take_profit_pct=algo_param.take_profit_pct,
+        )
+        if stop_loss_signal in ["STOP LOSS", "TAKE PROFIT"]:
+            order = coinone.sell_ticker("BTC", btc_available, limit_price=bid_prices[0])
+            if order and order.order_id:
+                order_detail = coinone.get_order_detail(order.order_id, "BTC")
+                process_trade(
+                    user,
+                    symbol="BTC",
+                    quantity=btc_available,
+                    limit_price=bid_prices[0],
+                    crypto_price=current_price,
+                    order_detail=order_detail,
+                    chat_id=config.telegram_chat_id,
+                    reason=f"{stop_loss_signal} 조건 만족으로 매도 실행",
+                )
+                save_portfolio_snapshot(user)
+            return
+
+    # 매수 신호 처리
+    if signal == "BUY" and krw_available >= config.min_trade_amount:
+        if (
+            (latest_rsi < algo_param.buy_rsi_threshold or current_price <= lower)
+            and buy_pressure >= algo_param.buy_pressure_threshold
+            and (profit_rate <= algo_param.buy_profit_rate or btc_available == 0)
+        ):
+            buy_amount = krw_available * algo_param.max_krw_buy_ratio
+            order = coinone.buy_ticker("BTC", buy_amount, limit_price=ask_prices[0])
+            if order and order.order_id:
+                order_detail = coinone.get_order_detail(order.order_id, "BTC")
+                process_trade(
+                    user,
+                    symbol="BTC",
+                    amount=buy_amount,
+                    crypto_price=current_price,
+                    order_detail=order_detail,
+                    chat_id=config.telegram_chat_id,
+                    reason="RSI/볼린저/압력/수익률 파라미터 기반 매수",
+                )
+                save_portfolio_snapshot(user)
+
+    # 매도 신호 처리
+    elif signal == "SELL" and btc_available > 0:
+        if (
+            (latest_rsi > algo_param.sell_rsi_threshold or current_price >= upper)
+            and buy_pressure < algo_param.sell_pressure_threshold
+            and profit_rate >= algo_param.sell_profit_rate
+        ):
+            sell_quantity = btc_available * 0.5
+            order = coinone.sell_ticker("BTC", sell_quantity, limit_price=bid_prices[0])
+            if order and order.order_id:
+                order_detail = coinone.get_order_detail(order.order_id, "BTC")
+                process_trade(
+                    user,
+                    symbol="BTC",
+                    quantity=sell_quantity,
+                    limit_price=bid_prices[0],
+                    crypto_price=current_price,
+                    order_detail=order_detail,
+                    chat_id=config.telegram_chat_id,
+                    reason="RSI/볼린저/압력/수익률 파라미터 기반 매도",
+                )
+                save_portfolio_snapshot(user)
+
+
+def optimize_parameters():
+    # 일 1회 파라미터 최적화
+    now = timezone.localtime()
+    if now.hour == 0 and now.minute == 0:
+        user = User.objects.get(is_superuser=True)
+        # 최근 거래 데이터
+        recent_trades = Trading.objects.filter(user=user, coin="BTC").order_by("-id")[:50].values()
+        # 최근 포트폴리오
+        portfolio = Portfolio.objects.filter(user=user).order_by("-created").first()
+        portfolio_data = None
+        if portfolio:
+            portfolio_data = {
+                "total_portfolio_value": portfolio.total_portfolio_value,
+                "total_coin_value": portfolio.total_coin_value,
+                "krw_balance": portfolio.krw_balance,
+                "invested_amount": portfolio.invested_amount,
+                "created": str(portfolio.created),
+            }
+        else:
+            portfolio_data = {}
+        payload = create_optimization_payload(
+            trade_data=list(recent_trades),
+            portfolio=portfolio_data,
+        )
+        optimized_params = request_optimized_parameters(payload)
+        if optimized_params:
+            AlgorithmParameter.objects.create(
+                user=user,
+                rsi_period=optimized_params.rsi_period,
+                bollinger_period=optimized_params.bollinger_period,
+                bollinger_std=optimized_params.bollinger_std,
+                buy_rsi_threshold=optimized_params.buy_rsi_threshold,
+                sell_rsi_threshold=optimized_params.sell_rsi_threshold,
+                buy_pressure_threshold=optimized_params.buy_pressure_threshold,
+                sell_pressure_threshold=optimized_params.sell_pressure_threshold,
+                stop_loss_pct=optimized_params.stop_loss_pct,
+                take_profit_pct=optimized_params.take_profit_pct,
+                buy_profit_rate=optimized_params.buy_profit_rate,
+                sell_profit_rate=optimized_params.sell_profit_rate,
+                max_krw_buy_ratio=optimized_params.max_krw_buy_ratio,
+            )
+
+
+def save_portfolio_snapshot(user):
+    balances = coinone.get_balances()
+    btc_price = float(coinone.get_ticker("BTC").get("trade_price") or 0)
+    btc_available = float(balances.get("BTC", {}).get("available") or 0)
+    krw_balance = int(float(balances["KRW"]["available"]))
+    btc_value = int(btc_available * btc_price)
+    total_portfolio_value = krw_balance + btc_value
+    invested_amount = Portfolio.objects.filter(user=user).order_by("created").first()
+    invested_amount = invested_amount.invested_amount if invested_amount else total_portfolio_value
+    Portfolio.objects.create(
+        user=user,
+        balances=balances,
+        total_portfolio_value=total_portfolio_value,
+        krw_balance=krw_balance,
+        total_coin_value=btc_value,
+        invested_amount=invested_amount,
+    )

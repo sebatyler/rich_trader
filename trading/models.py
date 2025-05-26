@@ -215,3 +215,21 @@ class UpbitTrading(TimeStampedModel):
                         setattr(self, field.name, Decimal(str(value)))
 
         super().save(*args, **kwargs)
+
+
+class AlgorithmParameter(TimeStampedModel):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    rsi_period = models.PositiveSmallIntegerField(default=14, help_text="RSI 계산에 사용되는 기간")
+    bollinger_period = models.PositiveSmallIntegerField(default=20, help_text="Bollinger 밴드 계산에 사용되는 기간")
+    bollinger_std = models.DecimalField(
+        max_digits=4, decimal_places=2, default=2.00, help_text="Bollinger 밴드 계산에 사용되는 표준편차 배수"
+    )
+    buy_rsi_threshold = models.FloatField(default=30.0, help_text="매수 RSI 임계값")
+    sell_rsi_threshold = models.FloatField(default=70.0, help_text="매도 RSI 임계값")
+    buy_pressure_threshold = models.FloatField(default=0.6, help_text="매수 압력 기준")
+    sell_pressure_threshold = models.FloatField(default=0.4, help_text="매도 압력 기준")
+    stop_loss_pct = models.FloatField(default=0.02, help_text="손절 퍼센트")
+    take_profit_pct = models.FloatField(default=0.05, help_text="이익실현 퍼센트")
+    buy_profit_rate = models.FloatField(default=-5.0, help_text="매수 허용 최대 손실률")
+    sell_profit_rate = models.FloatField(default=5.0, help_text="매도 허용 최소 수익률")
+    max_krw_buy_ratio = models.FloatField(default=0.1, help_text="원화 매수 비율(최대)")
