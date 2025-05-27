@@ -53,7 +53,7 @@ def calculate_bollinger_bands(prices, period=20, num_std=2):
     return middle, upper, lower
 
 
-def generate_trade_signal(current_price, rsi, upper_band, lower_band):
+def generate_trade_signal(buy_rsi_threshold, sell_rsi_threshold, current_price, rsi, upper_band, lower_band):
     """
     RSI와 Bollinger Bands를 이용하여 매매 신호(BUY, SELL, HOLD)를 생성합니다.
 
@@ -63,9 +63,9 @@ def generate_trade_signal(current_price, rsi, upper_band, lower_band):
     :param lower_band: Bollinger 하한선
     :return: 거래 신호 ("BUY", "SELL", "HOLD")
     """
-    if rsi < 30 or current_price < lower_band:
+    if rsi < buy_rsi_threshold or current_price < lower_band:
         return "BUY"
-    elif rsi > 70 or current_price > upper_band:
+    elif rsi > sell_rsi_threshold or current_price > upper_band:
         return "SELL"
     else:
         return "HOLD"

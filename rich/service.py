@@ -1064,6 +1064,8 @@ def auto_trade_btc():
     coinone.init(access_key=config.coinone_access_key, secret_key=config.coinone_secret_key)
 
     # 1. 데이터 수집
+    markets = coinone.get_markets()
+    btc_market = markets.get("BTC", {})
     ticker = coinone.get_ticker("BTC")
     current_price = float(ticker.get("trade_price") or ticker.get("last") or 0)
 
@@ -1095,6 +1097,8 @@ def auto_trade_btc():
     if len(prices) < max(algo_param.rsi_period, algo_param.bollinger_period):
         return
 
+    # 캔들차트 데이터는 최신 데이터가 맨 앞에 있으므로 rsi, bollinger bands 계산을 위해 뒤집어줌
+    prices.reverse()
     rsi_values = ta.calculate_rsi(prices, period=algo_param.rsi_period)
     latest_rsi = rsi_values[-1]
     middle, upper, lower = ta.calculate_bollinger_bands(
@@ -1121,7 +1125,14 @@ def auto_trade_btc():
     )
 
     # 4. 매매 신호 생성
-    signal = ta.generate_trade_signal(current_price, latest_rsi, upper, lower)
+    signal = ta.generate_trade_signal(
+        buy_rsi_threshold=algo_param.buy_rsi_threshold,
+        sell_rsi_threshold=algo_param.sell_rsi_threshold,
+        current_price=current_price,
+        rsi=latest_rsi,
+        upper_band=upper,
+        lower_band=lower,
+    )
 
     logging.info(f"{signal=}")
 
@@ -1168,8 +1179,10 @@ def auto_trade_btc():
             and buy_pressure >= algo_param.buy_pressure_threshold
             and (profit_rate <= algo_param.buy_profit_rate or btc_available == 0)
         ):
-            buy_amount = krw_available * algo_param.max_krw_buy_ratio
-            order = coinone.buy_ticker("BTC", buy_amount, limit_price=ask_prices[0])
+            min_trade_amount = float(btc_market.get("min_order_amount", 0))
+            buy_amount = max(min_trade_amount, krw_available * algo_param.max_krw_buy_ratio)
+            # order = coinone.buy_ticker("BTC", buy_amount, limit_price=ask_prices[0])
+            order = coinone.buy_ticker("BTC", buy_amount)
             if order and order.order_id:
                 order_detail = coinone.get_order_detail(order.order_id, "BTC")
                 process_trade(
