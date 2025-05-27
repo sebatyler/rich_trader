@@ -1226,18 +1226,14 @@ def optimize_parameters():
     if now.hour == 0 and now.minute == 0:
         user = User.objects.get(is_superuser=True)
         # 최근 거래 데이터
-        recent_trades = Trading.objects.filter(user=user, coin="BTC").order_by("-id")[:50].values()
+        recent_trades = (
+            Trading.objects.filter(user=user, coin="BTC", auto_trading__isnull=False).order_by("-id")[:50].values()
+        )
         # 최근 포트폴리오
-        portfolio = Portfolio.objects.filter(user=user).order_by("-created").first()
+        portfolio = Portfolio.objects.filter(user=user).order_by("-id").first()
         portfolio_data = None
         if portfolio:
-            portfolio_data = {
-                "total_portfolio_value": portfolio.total_portfolio_value,
-                "total_coin_value": portfolio.total_coin_value,
-                "krw_balance": portfolio.krw_balance,
-                "invested_amount": portfolio.invested_amount,
-                "created": str(portfolio.created),
-            }
+            portfolio_data = portfolio.export()
         else:
             portfolio_data = {}
         payload = create_optimization_payload(
