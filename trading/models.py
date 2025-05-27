@@ -247,6 +247,8 @@ class AutoTrading(TimeStampedModel):
     stop_loss_signal = models.CharField(max_length=20, null=True, blank=True)
     current_price = models.FloatField(null=True, blank=True)
     btc_available = models.FloatField(null=True, blank=True)
+    btc_avg_price = models.FloatField(null=True, blank=True)
+    btc_profit_rate = models.FloatField(null=True, blank=True)
     krw_available = models.FloatField(null=True, blank=True)
     trading = models.ForeignKey(
         "Trading", null=True, blank=True, on_delete=models.SET_NULL, related_name="auto_tradings"

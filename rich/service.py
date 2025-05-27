@@ -1129,11 +1129,15 @@ class AutoTradingRunner:
         self.auto_trading.signal = signal
         self.auto_trading.current_price = current_price
         self.auto_trading.btc_available = btc_available
+        self.auto_trading.btc_avg_price = btc_avg_price
+        self.auto_trading.btc_profit_rate = profit_rate
         self.auto_trading.krw_available = krw_available
         self.auto_trading.save()
 
-        logging.info(f"{signal=} {latest_rsi=:,.2f} {upper=:,.0f} {lower=:,.0f} {current_price=:,.0f}")
-        logging.info(f"{btc_available=} {krw_available=:,.0f}")
+        logging.info(f"{signal=} {latest_rsi=:,.2f} {upper=:,.0f} {lower=:,.0f}")
+        logging.info(
+            f"BTC: {btc_available} Price(avg/cur): {btc_avg_price:,.0f}/{current_price:,.0f} Profit: {profit_rate:,.2f}% KRW: {krw_available:,.0f}"
+        )
 
         stop_loss_signal = None
         if btc_available > 0:
