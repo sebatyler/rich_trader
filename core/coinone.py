@@ -3,10 +3,14 @@ import hashlib
 import hmac
 import json
 import uuid
+from datetime import datetime
+from datetime import timedelta
 from typing import Optional
 
 import requests
 from pydantic import BaseModel
+
+from django.utils import timezone
 
 ACCESS_TOKEN = None
 SECRET_KEY = None
@@ -99,6 +103,25 @@ def buy_ticker(ticker, amount_krw) -> OrderResponse:
 
 def sell_ticker(ticker, quantity, limit_price) -> OrderResponse:
     return _order(ticker, "SELL", quantity=quantity, limit_price=limit_price)
+
+
+def get_completed_orders(ticker, size=10, from_at: datetime = None, to_at: datetime = None):
+    to_at = to_at or timezone.now()
+    to_ts = int(to_at.timestamp() * 1000)
+    from_at = from_at or to_at - timedelta(days=1)
+    from_ts = int(from_at.timestamp() * 1000)
+
+    return get_response(
+        action=f"/v2.1/order/completed_orders",
+        payload={
+            "access_token": ACCESS_TOKEN,
+            "quote_currency": "KRW",
+            "target_currency": ticker,
+            "size": size,
+            "from_ts": from_ts,
+            "to_ts": to_ts,
+        },
+    )
 
 
 def get_order_detail(order_id, target_currency):

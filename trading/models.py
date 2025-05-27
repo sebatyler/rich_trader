@@ -119,7 +119,7 @@ class Trading(TimeStampedModel):
     order_detail = models.JSONField(default=dict)
 
     def __str__(self):
-        return f"{self.user.username}'s {self.side} {self.coin} order ({self.order_id})"
+        return f"Trading({self.id}): {self.side}/{self.coin}"
 
     def save(self, *args, **kwargs):
         is_adding = self._state.adding
