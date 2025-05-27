@@ -6,6 +6,8 @@ from django.db import models
 
 from core.admin import ModelAdmin
 
+from .models import AlgorithmParameter
+from .models import AutoTrading
 from .models import Portfolio
 from .models import Trading
 from .models import TradingConfig
@@ -95,3 +97,48 @@ class UpbitTradingAdmin(ModelAdmin):
     )
     list_filter = ("coin", "is_dca")
     formfield_overrides = formfield_overrides
+
+
+@admin.register(AlgorithmParameter)
+class AlgorithmParameterAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "user",
+        "rsi_period",
+        "bollinger_period",
+        "bollinger_std",
+        "buy_rsi_threshold",
+        "sell_rsi_threshold",
+        "created",
+    )
+    list_filter = ("user",)
+    search_fields = ("user__username",)
+    list_display_links = ("id", "user")
+
+
+@admin.register(AutoTrading)
+class AutoTradingAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "created",
+        "finished_at",
+        "is_processing",
+        "trading",
+        "signal",
+        "stop_loss_signal",
+        "rsi",
+        "bollinger_upper",
+        "bollinger_lower",
+        "current_price",
+        "btc_available",
+        "krw_available",
+    )
+    list_filter = (
+        "is_processing",
+        ("trading", admin.EmptyFieldListFilter),
+        "signal",
+        "stop_loss_signal",
+    )
+    list_select_related = ("trading",)
+    search_fields = ("id",)
+    list_display_links = ("id",)

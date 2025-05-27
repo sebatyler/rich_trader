@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal
 
 import pandas as pd
@@ -7,6 +8,7 @@ from simple_history.models import HistoricalRecords
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 from accounts.models import User
 from core.choices import ExchangeChoices
@@ -233,3 +235,29 @@ class AlgorithmParameter(TimeStampedModel):
     buy_profit_rate = models.FloatField(default=-5.0, help_text="매수 허용 최대 손실률")
     sell_profit_rate = models.FloatField(default=5.0, help_text="매도 허용 최소 수익률")
     max_krw_buy_ratio = models.FloatField(default=0.1, help_text="원화 매수 비율(최대)")
+
+
+class AutoTrading(TimeStampedModel):
+    finished_at = models.DateTimeField(null=True, blank=True)
+    is_processing = models.BooleanField(default=True)
+    rsi = models.FloatField(null=True, blank=True)
+    bollinger_upper = models.FloatField(null=True, blank=True)
+    bollinger_lower = models.FloatField(null=True, blank=True)
+    signal = models.CharField(max_length=10, null=True, blank=True)
+    stop_loss_signal = models.CharField(max_length=20, null=True, blank=True)
+    current_price = models.FloatField(null=True, blank=True)
+    btc_available = models.FloatField(null=True, blank=True)
+    krw_available = models.FloatField(null=True, blank=True)
+    trading = models.ForeignKey(
+        "Trading", null=True, blank=True, on_delete=models.SET_NULL, related_name="auto_tradings"
+    )
+
+    def __str__(self):
+        return f"AutoTrading {self.created} (processing={self.is_processing})"
+
+    @property
+    def is_expired(self):
+        if not self.is_processing:
+            return False
+        # 5분(300초) 이상 경과 시 expired
+        return (timezone.now() - self.created) > timedelta(minutes=5)

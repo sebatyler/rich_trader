@@ -38,6 +38,7 @@ from core.utils import dict_at
 from core.utils import format_currency
 from core.utils import format_quantity
 from trading.models import AlgorithmParameter
+from trading.models import AutoTrading
 from trading.models import Portfolio
 from trading.models import Trading
 from trading.models import TradingConfig
@@ -1040,184 +1041,183 @@ def _buy_upbit_dca():
         time.sleep(0.1)
 
 
-# ======================================================================
-# Auto trading function for BTC executed every minute
+class AutoTradingRunner:
+    def __init__(self, config):
+        self.config = config
+        self.user = config.user
+        self.auto_trading = None
+        self.trading_obj = None
+
+    def already_processing(self):
+        latest = AutoTrading.objects.filter(is_processing=True).order_by("-id").first()
+        return latest and not latest.is_expired
+
+    def start(self):
+        self.auto_trading = AutoTrading.objects.create()
+
+    def finish(self):
+        if self.auto_trading:
+            self.auto_trading.is_processing = False
+            self.auto_trading.finished_at = timezone.now()
+            self.auto_trading.save()
+
+    def run(self):
+        if self.already_processing():
+            logging.warning("Auto trading already in progress, skipping this run.")
+            return
+        self.start()
+        try:
+            self._main_logic()
+        finally:
+            self.finish()
+
+    def _main_logic(self):
+        coinone.init(access_key=self.config.coinone_access_key, secret_key=self.config.coinone_secret_key)
+        markets = coinone.get_markets()
+        btc_market = markets.get("BTC", {})
+        ticker = coinone.get_ticker("BTC")
+        current_price = float(ticker.get("trade_price") or ticker.get("last") or 0)
+        candle_data = coinone.get_candles("BTC", "15m", size=100)
+        candles = candle_data.get("chart", [])
+        prices = [float(c["close"]) for c in candles if "close" in c]
+        orderbook = coinone.get_orderbook("BTC")
+        balances = coinone.get_balances()
+        krw_available = float(balances.get("KRW", {}).get("available") or 0)
+        btc_data = balances.get("BTC", {})
+        btc_available = float(btc_data.get("available") or 0)
+        btc_avg_price = float(btc_data.get("average_price") or 0)
+        algo_param = AlgorithmParameter.objects.filter(user=self.user).order_by("-id").first()
+        if not algo_param:
+            algo_param = AlgorithmParameter.objects.create(user=self.user)
+        if len(prices) < max(algo_param.rsi_period, algo_param.bollinger_period):
+            return
+        prices.reverse()
+        rsi_values = ta.calculate_rsi(prices, period=algo_param.rsi_period)
+        latest_rsi = rsi_values[-1]
+        middle, upper, lower = ta.calculate_bollinger_bands(
+            prices, period=algo_param.bollinger_period, num_std=float(algo_param.bollinger_std)
+        )
+        bids = orderbook.get("bids", [])
+        asks = orderbook.get("asks", [])
+        bid_prices = [float(bid["price"]) for bid in bids]
+        ask_prices = [float(ask["price"]) for ask in asks]
+        bid_volumes = [float(bid["qty"]) for bid in bids]
+        ask_volumes = [float(ask["qty"]) for ask in asks]
+        total_bid_volume = sum(bid_volumes[:5])
+        total_ask_volume = sum(ask_volumes[:5])
+        buy_pressure = (
+            total_bid_volume / (total_bid_volume + total_ask_volume) if total_bid_volume + total_ask_volume > 0 else 0.5
+        )
+        signal = ta.generate_trade_signal(
+            buy_rsi_threshold=algo_param.buy_rsi_threshold,
+            sell_rsi_threshold=algo_param.sell_rsi_threshold,
+            current_price=current_price,
+            rsi=latest_rsi,
+            upper_band=upper,
+            lower_band=lower,
+        )
+        btc_invested = btc_available * btc_avg_price
+        btc_now = btc_available * current_price
+        if btc_invested > 0:
+            profit_rate = (btc_now - btc_invested) / btc_invested * 100
+        else:
+            profit_rate = 0
+        # AutoTrading 지표/상태 저장
+        self.auto_trading.rsi = latest_rsi
+        self.auto_trading.bollinger_upper = upper
+        self.auto_trading.bollinger_lower = lower
+        self.auto_trading.signal = signal
+        self.auto_trading.current_price = current_price
+        self.auto_trading.btc_available = btc_available
+        self.auto_trading.krw_available = krw_available
+        self.auto_trading.save()
+
+        logging.info(f"{signal=} {latest_rsi=:,.2f} {upper=:,.0f} {lower=:,.0f} {current_price=:,.0f}")
+        logging.info(f"{btc_available=} {krw_available=:,.0f}")
+
+        stop_loss_signal = None
+        if btc_available > 0:
+            stop_loss_signal = ta.check_stop_loss_take_profit(
+                btc_avg_price,
+                current_price,
+                stop_loss_pct=algo_param.stop_loss_pct,
+                take_profit_pct=algo_param.take_profit_pct,
+            )
+            self.auto_trading.stop_loss_signal = stop_loss_signal
+            self.auto_trading.save()
+
+        trading_obj = None
+        if btc_available > 0 and stop_loss_signal:
+            if stop_loss_signal in ["STOP LOSS", "TAKE PROFIT"]:
+                order = coinone.sell_ticker("BTC", btc_available, limit_price=bid_prices[0])
+                if order and order.order_id:
+                    order_detail = coinone.get_order_detail(order.order_id, "BTC")
+                    trading_obj = process_trade(
+                        self.user,
+                        symbol="BTC",
+                        quantity=btc_available,
+                        limit_price=bid_prices[0],
+                        crypto_price=current_price,
+                        order_detail=order_detail,
+                        chat_id=self.config.telegram_chat_id,
+                        reason=f"{stop_loss_signal} 조건 만족으로 매도 실행",
+                    )
+                    self.auto_trading.trading = trading_obj
+                    self.auto_trading.save()
+                save_portfolio_snapshot(self.user)
+                return
+        if signal == "BUY" and krw_available >= self.config.min_trade_amount:
+            if (
+                (latest_rsi < algo_param.buy_rsi_threshold or current_price <= lower)
+                and buy_pressure >= algo_param.buy_pressure_threshold
+                and (profit_rate <= algo_param.buy_profit_rate or btc_available == 0)
+            ):
+                min_trade_amount = float(btc_market.get("min_order_amount", 0))
+                buy_amount = max(min_trade_amount, krw_available * algo_param.max_krw_buy_ratio)
+                order = coinone.buy_ticker("BTC", buy_amount)
+                if order and order.order_id:
+                    order_detail = coinone.get_order_detail(order.order_id, "BTC")
+                    trading_obj = process_trade(
+                        self.user,
+                        symbol="BTC",
+                        amount=buy_amount,
+                        crypto_price=current_price,
+                        order_detail=order_detail,
+                        chat_id=self.config.telegram_chat_id,
+                        reason="RSI/볼린저/압력/수익률 파라미터 기반 매수",
+                    )
+                    self.auto_trading.trading = trading_obj
+                    self.auto_trading.save()
+                save_portfolio_snapshot(self.user)
+        elif signal == "SELL" and btc_available > 0:
+            if (
+                (latest_rsi > algo_param.sell_rsi_threshold or current_price >= upper)
+                and buy_pressure < algo_param.sell_pressure_threshold
+                and profit_rate >= algo_param.sell_profit_rate
+            ):
+                sell_quantity = btc_available * 0.5
+                order = coinone.sell_ticker("BTC", sell_quantity, limit_price=bid_prices[0])
+                if order and order.order_id:
+                    order_detail = coinone.get_order_detail(order.order_id, "BTC")
+                    trading_obj = process_trade(
+                        self.user,
+                        symbol="BTC",
+                        quantity=sell_quantity,
+                        limit_price=bid_prices[0],
+                        crypto_price=current_price,
+                        order_detail=order_detail,
+                        chat_id=self.config.telegram_chat_id,
+                        reason="RSI/볼린저/압력/수익률 파라미터 기반 매도",
+                    )
+                    self.auto_trading.trading = trading_obj
+                    self.auto_trading.save()
+                save_portfolio_snapshot(self.user)
 
 
 def auto_trade_btc():
-    """
-    매분 BTC의 캔들차트, 오더북, 최근 체결, 잔고, 최근 거래내역, 알고리즘 파라미터, 수익률을 모두 활용해 알고리즘 트레이딩을 수행합니다.
-
-    1. 데이터 수집 및 기술적 지표 계산
-    2. 매매 신호 생성 (RSI + 볼린저 밴드)
-    3. 오더북 분석을 통한 매수/매도 가격 결정
-    4. 손절/이익실현 조건 확인
-    5. 주문 실행 및 결과 처리
-    6. 파라미터 최적화 (일 1회)
-    """
-    try:
-        config = TradingConfig.objects.get(user__is_superuser=True)
-    except TradingConfig.DoesNotExist:
-        return
-
-    user = config.user
-    coinone.init(access_key=config.coinone_access_key, secret_key=config.coinone_secret_key)
-
-    # 1. 데이터 수집
-    markets = coinone.get_markets()
-    btc_market = markets.get("BTC", {})
-    ticker = coinone.get_ticker("BTC")
-    current_price = float(ticker.get("trade_price") or ticker.get("last") or 0)
-
-    # 캔들차트 데이터 (15분봉 기준)
-    candle_data = coinone.get_candles("BTC", "15m", size=100)
-    candles = candle_data.get("chart", [])
-    prices = [float(c["close"]) for c in candles if "close" in c]
-
-    # 오더북과 최근 체결
-    orderbook = coinone.get_orderbook("BTC")
-    # trades = coinone.get_trades("BTC")
-
-    # 잔고 확인
-    balances = coinone.get_balances()
-    krw_available = float(balances.get("KRW", {}).get("available") or 0)
-    btc_data = balances.get("BTC", {})
-    btc_available = float(btc_data.get("available") or 0)
-    btc_avg_price = float(btc_data.get("average_price") or 0)
-
-    # 최근 거래 내역
-    # recent_trades_csv = Trading.get_recent_trades_csv(user)
-
-    # 현재 알고리즘 파라미터 불러오기
-    algo_param = AlgorithmParameter.objects.filter(user=user).order_by("-id").first()
-    if not algo_param:
-        algo_param = AlgorithmParameter.objects.create(user=user)
-
-    # 2. 기술적 지표 계산
-    if len(prices) < max(algo_param.rsi_period, algo_param.bollinger_period):
-        return
-
-    # 캔들차트 데이터는 최신 데이터가 맨 앞에 있으므로 rsi, bollinger bands 계산을 위해 뒤집어줌
-    prices.reverse()
-    rsi_values = ta.calculate_rsi(prices, period=algo_param.rsi_period)
-    latest_rsi = rsi_values[-1]
-    middle, upper, lower = ta.calculate_bollinger_bands(
-        prices, period=algo_param.bollinger_period, num_std=float(algo_param.bollinger_std)
-    )
-
-    logging.info(f"{latest_rsi=} {upper=} {lower=}")
-
-    # 3. 오더북 분석
-    bids = orderbook.get("bids", [])
-    asks = orderbook.get("asks", [])
-
-    # 매수/매도 호가 분석
-    bid_prices = [float(bid["price"]) for bid in bids]
-    ask_prices = [float(ask["price"]) for ask in asks]
-    bid_volumes = [float(bid["qty"]) for bid in bids]
-    ask_volumes = [float(ask["qty"]) for ask in asks]
-
-    # 매수/매도 압력 계산
-    total_bid_volume = sum(bid_volumes[:5])  # 상위 5호가
-    total_ask_volume = sum(ask_volumes[:5])  # 상위 5호가
-    buy_pressure = (
-        total_bid_volume / (total_bid_volume + total_ask_volume) if total_bid_volume + total_ask_volume > 0 else 0.5
-    )
-
-    # 4. 매매 신호 생성
-    signal = ta.generate_trade_signal(
-        buy_rsi_threshold=algo_param.buy_rsi_threshold,
-        sell_rsi_threshold=algo_param.sell_rsi_threshold,
-        current_price=current_price,
-        rsi=latest_rsi,
-        upper_band=upper,
-        lower_band=lower,
-    )
-
-    logging.info(f"{signal=}")
-
-    # 5. 평균매입가 기반으로 실시간 수익률 계산
-    btc_invested = btc_available * btc_avg_price
-    btc_now = btc_available * current_price
-    if btc_invested > 0:
-        profit_rate = (btc_now - btc_invested) / btc_invested * 100
-    else:
-        profit_rate = 0
-
-    logging.info(f"{btc_available=} {btc_avg_price=} {current_price=} {profit_rate=}")
-
-    # 6. 매매 로직
-    # 보유 중인 BTC가 있는 경우 손절/이익실현 확인
-    if btc_available > 0:
-        stop_loss_signal = ta.check_stop_loss_take_profit(
-            btc_avg_price,
-            current_price,
-            stop_loss_pct=algo_param.stop_loss_pct,
-            take_profit_pct=algo_param.take_profit_pct,
-        )
-        if stop_loss_signal in ["STOP LOSS", "TAKE PROFIT"]:
-            order = coinone.sell_ticker("BTC", btc_available, limit_price=bid_prices[0])
-            if order and order.order_id:
-                order_detail = coinone.get_order_detail(order.order_id, "BTC")
-                process_trade(
-                    user,
-                    symbol="BTC",
-                    quantity=btc_available,
-                    limit_price=bid_prices[0],
-                    crypto_price=current_price,
-                    order_detail=order_detail,
-                    chat_id=config.telegram_chat_id,
-                    reason=f"{stop_loss_signal} 조건 만족으로 매도 실행",
-                )
-                save_portfolio_snapshot(user)
-            return
-
-    # 매수 신호 처리
-    if signal == "BUY" and krw_available >= config.min_trade_amount:
-        if (
-            (latest_rsi < algo_param.buy_rsi_threshold or current_price <= lower)
-            and buy_pressure >= algo_param.buy_pressure_threshold
-            and (profit_rate <= algo_param.buy_profit_rate or btc_available == 0)
-        ):
-            min_trade_amount = float(btc_market.get("min_order_amount", 0))
-            buy_amount = max(min_trade_amount, krw_available * algo_param.max_krw_buy_ratio)
-            # order = coinone.buy_ticker("BTC", buy_amount, limit_price=ask_prices[0])
-            order = coinone.buy_ticker("BTC", buy_amount)
-            if order and order.order_id:
-                order_detail = coinone.get_order_detail(order.order_id, "BTC")
-                process_trade(
-                    user,
-                    symbol="BTC",
-                    amount=buy_amount,
-                    crypto_price=current_price,
-                    order_detail=order_detail,
-                    chat_id=config.telegram_chat_id,
-                    reason="RSI/볼린저/압력/수익률 파라미터 기반 매수",
-                )
-                save_portfolio_snapshot(user)
-
-    # 매도 신호 처리
-    elif signal == "SELL" and btc_available > 0:
-        if (
-            (latest_rsi > algo_param.sell_rsi_threshold or current_price >= upper)
-            and buy_pressure < algo_param.sell_pressure_threshold
-            and profit_rate >= algo_param.sell_profit_rate
-        ):
-            sell_quantity = btc_available * 0.5
-            order = coinone.sell_ticker("BTC", sell_quantity, limit_price=bid_prices[0])
-            if order and order.order_id:
-                order_detail = coinone.get_order_detail(order.order_id, "BTC")
-                process_trade(
-                    user,
-                    symbol="BTC",
-                    quantity=sell_quantity,
-                    limit_price=bid_prices[0],
-                    crypto_price=current_price,
-                    order_detail=order_detail,
-                    chat_id=config.telegram_chat_id,
-                    reason="RSI/볼린저/압력/수익률 파라미터 기반 매도",
-                )
-                save_portfolio_snapshot(user)
+    config = TradingConfig.objects.get(user__is_superuser=True)
+    runner = AutoTradingRunner(config)
+    runner.run()
 
 
 def optimize_parameters():
