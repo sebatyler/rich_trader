@@ -142,3 +142,4 @@ class AutoTradingAdmin(ModelAdmin):
     list_select_related = ("trading",)
     search_fields = ("id",)
     list_display_links = ("id",)
+    readonly_fields = ("created",)

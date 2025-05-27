@@ -521,7 +521,7 @@ def process_trade(
     balances = coinone.get_balances()
     send_trade_result(balances=balances, chat_id=chat_id, trading=trading)
 
-    return balances
+    return balances, trading
 
 
 def execute_trade(user, recommendation: Recommendation, crypto_data: dict, chat_id: str) -> dict:
@@ -1043,10 +1043,10 @@ def _buy_upbit_dca():
 
 class AutoTradingRunner:
     def __init__(self, config):
-        self.config = config
-        self.user = config.user
-        self.auto_trading = None
-        self.trading_obj = None
+        self.config: TradingConfig = config
+        self.user: User = config.user
+        self.auto_trading: AutoTrading = None
+        self.trading_obj: Trading = None
 
     def already_processing(self):
         latest = AutoTrading.objects.filter(is_processing=True).order_by("-id").first()
@@ -1147,12 +1147,13 @@ class AutoTradingRunner:
             self.auto_trading.save()
 
         trading_obj = None
+        balances = None
         if btc_available > 0 and stop_loss_signal:
             if stop_loss_signal in ["STOP LOSS", "TAKE PROFIT"]:
                 order = coinone.sell_ticker("BTC", btc_available, limit_price=bid_prices[0])
                 if order and order.order_id:
                     order_detail = coinone.get_order_detail(order.order_id, "BTC")
-                    trading_obj = process_trade(
+                    balances, trading_obj = process_trade(
                         self.user,
                         symbol="BTC",
                         quantity=btc_available,
@@ -1164,7 +1165,7 @@ class AutoTradingRunner:
                     )
                     self.auto_trading.trading = trading_obj
                     self.auto_trading.save()
-                save_portfolio_snapshot(self.user)
+                save_portfolio_snapshot(self.user, balances)
                 return
         if signal == "BUY" and krw_available >= self.config.min_trade_amount:
             if (
@@ -1177,7 +1178,7 @@ class AutoTradingRunner:
                 order = coinone.buy_ticker("BTC", buy_amount)
                 if order and order.order_id:
                     order_detail = coinone.get_order_detail(order.order_id, "BTC")
-                    trading_obj = process_trade(
+                    balances, trading_obj = process_trade(
                         self.user,
                         symbol="BTC",
                         amount=buy_amount,
@@ -1188,7 +1189,7 @@ class AutoTradingRunner:
                     )
                     self.auto_trading.trading = trading_obj
                     self.auto_trading.save()
-                save_portfolio_snapshot(self.user)
+                save_portfolio_snapshot(self.user, balances)
         elif signal == "SELL" and btc_available > 0:
             if (
                 (latest_rsi > algo_param.sell_rsi_threshold or current_price >= upper)
@@ -1199,7 +1200,7 @@ class AutoTradingRunner:
                 order = coinone.sell_ticker("BTC", sell_quantity, limit_price=bid_prices[0])
                 if order and order.order_id:
                     order_detail = coinone.get_order_detail(order.order_id, "BTC")
-                    trading_obj = process_trade(
+                    balances, trading_obj = process_trade(
                         self.user,
                         symbol="BTC",
                         quantity=sell_quantity,
@@ -1211,7 +1212,7 @@ class AutoTradingRunner:
                     )
                     self.auto_trading.trading = trading_obj
                     self.auto_trading.save()
-                save_portfolio_snapshot(self.user)
+                save_portfolio_snapshot(self.user, balances)
 
 
 def auto_trade_btc():
@@ -1259,20 +1260,17 @@ def optimize_parameters():
             )
 
 
-def save_portfolio_snapshot(user):
-    balances = coinone.get_balances()
+def save_portfolio_snapshot(user, balances=None):
+    balances = balances or coinone.get_balances()
     btc_price = float(coinone.get_ticker("BTC").get("trade_price") or 0)
     btc_available = float(balances.get("BTC", {}).get("available") or 0)
     krw_balance = int(float(balances["KRW"]["available"]))
     btc_value = int(btc_available * btc_price)
     total_portfolio_value = krw_balance + btc_value
-    invested_amount = Portfolio.objects.filter(user=user).order_by("created").first()
-    invested_amount = invested_amount.invested_amount if invested_amount else total_portfolio_value
     Portfolio.objects.create(
         user=user,
         balances=balances,
         total_portfolio_value=total_portfolio_value,
         krw_balance=krw_balance,
         total_coin_value=btc_value,
-        invested_amount=invested_amount,
     )
