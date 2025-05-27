@@ -489,15 +489,15 @@ def send_trade_result(trading: Trading, balances: dict, chat_id: str):
 
 
 def process_trade(
-    user,
+    user: User,
     symbol: str,
-    amount: float,
-    quantity: float,
-    limit_price: float,
-    crypto_price: float,
     order_detail: dict,
     chat_id: str,
     reason: str,
+    crypto_price: float,
+    amount: float = None,
+    quantity: float = None,
+    limit_price: float = None,
 ):
     """거래를 처리하고 결과를 저장 및 전송합니다."""
     order_data = order_detail["order"]
