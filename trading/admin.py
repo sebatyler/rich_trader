@@ -121,7 +121,6 @@ class AutoTradingAdmin(ModelAdmin):
     list_display = (
         "id",
         "created",
-        "finished_at",
         "is_processing",
         "trading",
         "signal",
@@ -132,6 +131,7 @@ class AutoTradingAdmin(ModelAdmin):
         "current_price",
         "btc_available",
         "krw_available",
+        "finished_at",
     )
     list_filter = (
         "is_processing",
