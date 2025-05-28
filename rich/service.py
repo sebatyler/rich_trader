@@ -745,7 +745,7 @@ def rebalance_portfolio():
             logging.exception(f"Failed to collect data for {symbol}: {e}")
             continue
 
-    config = TradingConfig.objects.filter(is_active=True, user__is_superuser=True).first()
+    config = TradingConfig.objects.filter(user__is_superuser=True).first()
     chat_id = config.telegram_chat_id
 
     # 해당 유저의 target_coins에 대한 데이터만 필터링
@@ -855,7 +855,7 @@ def select_coins_to_buy():
     else:
         text = "No coins met the criteria for buying"
 
-    config = TradingConfig.objects.filter(is_active=True, user__is_superuser=True).first()
+    config = TradingConfig.objects.filter(user__is_superuser=True).first()
     send_message(text, chat_id=config.telegram_chat_id, is_markdown=True)
 
 
