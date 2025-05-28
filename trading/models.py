@@ -221,6 +221,7 @@ class UpbitTrading(TimeStampedModel):
 
 class AlgorithmParameter(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    reasoning = models.TextField(null=True, blank=True)
     rsi_period = models.PositiveSmallIntegerField(default=14, help_text="RSI 계산에 사용되는 기간")
     bollinger_period = models.PositiveSmallIntegerField(default=20, help_text="Bollinger 밴드 계산에 사용되는 기간")
     bollinger_std = models.DecimalField(

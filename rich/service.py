@@ -35,6 +35,7 @@ from core.parameter_optimization import create_optimization_payload
 from core.parameter_optimization import request_optimized_parameters
 from core.telegram import send_message
 from core.utils import dict_at
+from core.utils import dict_omit
 from core.utils import format_currency
 from core.utils import format_quantity
 from trading.models import AlgorithmParameter
@@ -1228,40 +1229,50 @@ def auto_trade_btc():
 def optimize_parameters():
     # 일 1회 파라미터 최적화
     now = timezone.localtime()
-    if now.hour == 0 and now.minute == 0:
-        user = User.objects.get(is_superuser=True)
-        # 최근 거래 데이터
-        recent_trades = (
-            Trading.objects.filter(user=user, coin="BTC", auto_trading__isnull=False).order_by("-id")[:50].values()
+    if AlgorithmParameter.objects.filter(created__date=now.date()).exists():
+        return
+
+    config = TradingConfig.objects.get(user__is_superuser=True)
+    user = config.user
+    # 최근 거래 데이터
+    recent_trades = (
+        Trading.objects.filter(user=user, coin="BTC", auto_tradings__isnull=False).order_by("-id")[:50].values()
+    )
+    recent_trades = [dict_omit(trade, "status") for trade in recent_trades]
+    # 현재 시점의 포트폴리오를 생성하여 export
+    coinone.init(access_key=config.coinone_access_key, secret_key=config.coinone_secret_key)
+    balances = coinone.get_balances()
+    balances = {
+        k: v
+        for k, v in balances.items()
+        if k == "KRW" or (float(v.get("available") or 0) > 0 and float(v.get("average_price") or 0) > 0)
+    }
+    btc_data = balances.get("BTC", {})
+    btc_available = float(btc_data.get("available") or 0)
+    ticker = coinone.get_ticker("BTC")
+    btc_price = float(ticker.get("trade_price") or ticker.get("last") or 0)
+    krw_balance = int(float(balances["KRW"]["available"]))
+    btc_value = int(btc_available * btc_price)
+    total_portfolio_value = krw_balance + btc_value
+    portfolio = Portfolio.objects.create(
+        user=user,
+        balances=balances,
+        total_portfolio_value=total_portfolio_value,
+        krw_balance=krw_balance,
+        total_coin_value=btc_value,
+    )
+    portfolio_data = portfolio.export()
+    payload = create_optimization_payload(
+        trade_data=recent_trades,
+        portfolio=portfolio_data,
+    )
+    optimized_params = request_optimized_parameters(payload)
+    logging.info(f"{optimized_params=}")
+    if optimized_params:
+        AlgorithmParameter.objects.create(
+            user=user,
+            **optimized_params.model_dump(),
         )
-        # 최근 포트폴리오
-        portfolio = Portfolio.objects.filter(user=user).order_by("-id").first()
-        portfolio_data = None
-        if portfolio:
-            portfolio_data = portfolio.export()
-        else:
-            portfolio_data = {}
-        payload = create_optimization_payload(
-            trade_data=list(recent_trades),
-            portfolio=portfolio_data,
-        )
-        optimized_params = request_optimized_parameters(payload)
-        if optimized_params:
-            AlgorithmParameter.objects.create(
-                user=user,
-                rsi_period=optimized_params.rsi_period,
-                bollinger_period=optimized_params.bollinger_period,
-                bollinger_std=optimized_params.bollinger_std,
-                buy_rsi_threshold=optimized_params.buy_rsi_threshold,
-                sell_rsi_threshold=optimized_params.sell_rsi_threshold,
-                buy_pressure_threshold=optimized_params.buy_pressure_threshold,
-                sell_pressure_threshold=optimized_params.sell_pressure_threshold,
-                stop_loss_pct=optimized_params.stop_loss_pct,
-                take_profit_pct=optimized_params.take_profit_pct,
-                buy_profit_rate=optimized_params.buy_profit_rate,
-                sell_profit_rate=optimized_params.sell_profit_rate,
-                max_krw_buy_ratio=optimized_params.max_krw_buy_ratio,
-            )
 
 
 def save_portfolio_snapshot(user, balances=None):
