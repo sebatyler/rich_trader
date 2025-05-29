@@ -1128,17 +1128,13 @@ class AutoTradingRunner:
         self.auto_trading.bollinger_upper = upper
         self.auto_trading.bollinger_lower = lower
         self.auto_trading.signal = signal
+        self.auto_trading.buy_pressure = buy_pressure
         self.auto_trading.current_price = current_price
         self.auto_trading.btc_available = btc_available
         self.auto_trading.btc_avg_price = btc_avg_price
         self.auto_trading.btc_profit_rate = profit_rate
         self.auto_trading.krw_available = krw_available
         self.auto_trading.save()
-
-        logging.info(f"{signal=} {latest_rsi=:,.2f} {upper=:,.0f} {lower=:,.0f}")
-        logging.info(
-            f"BTC: {btc_available} Price(avg/cur): {btc_avg_price:,.0f}/{current_price:,.0f} Profit: {profit_rate:,.2f}% KRW: {krw_available:,.0f}"
-        )
 
         stop_loss_signal = None
         if btc_available > 0:
@@ -1150,6 +1146,13 @@ class AutoTradingRunner:
             )
             self.auto_trading.stop_loss_signal = stop_loss_signal
             self.auto_trading.save()
+
+        logging.info(
+            f"Signal={signal}/{stop_loss_signal} RSI={latest_rsi:.2f} Pressure={buy_pressure:.3f} Band={upper:.0f}/{lower:.0f}"
+        )
+        logging.info(
+            f"BTC={btc_available} Profit={profit_rate:.2f}% Price={btc_avg_price:,.0f}/{current_price:,.0f} KRW={krw_available:,.0f}"
+        )
 
         trading_obj = None
         balances = None

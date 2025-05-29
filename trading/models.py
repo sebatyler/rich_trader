@@ -244,6 +244,7 @@ class AutoTrading(TimeStampedModel):
     rsi = models.FloatField(null=True, blank=True)
     bollinger_upper = models.FloatField(null=True, blank=True)
     bollinger_lower = models.FloatField(null=True, blank=True)
+    buy_pressure = models.FloatField(null=True, blank=True)
     signal = models.CharField(max_length=10, null=True, blank=True)
     stop_loss_signal = models.CharField(max_length=20, null=True, blank=True)
     current_price = models.FloatField(null=True, blank=True)

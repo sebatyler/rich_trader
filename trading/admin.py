@@ -123,10 +123,11 @@ class AutoTradingAdmin(ModelAdmin):
         "created",
         "is_processing",
         "trading",
+        "_btc_profit_rate",
         "signal",
         "stop_loss_signal",
-        "btc_profit_rate",
-        "rsi",
+        "_rsi",
+        "_buy_pressure",
         "bollinger_upper",
         "bollinger_lower",
         "current_price",
@@ -145,3 +146,15 @@ class AutoTradingAdmin(ModelAdmin):
     search_fields = ("id",)
     list_display_links = ("id",)
     readonly_fields = ("created",)
+
+    def _btc_profit_rate(self, obj):
+        if obj.btc_profit_rate:
+            return f"{obj.btc_profit_rate:.3f}%"
+
+    def _rsi(self, obj):
+        if obj.rsi:
+            return f"{obj.rsi:.2f}"
+
+    def _buy_pressure(self, obj):
+        if obj.buy_pressure:
+            return f"{obj.buy_pressure:.3f}"
