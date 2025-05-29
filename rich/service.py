@@ -1148,7 +1148,7 @@ class AutoTradingRunner:
             self.auto_trading.save()
 
         logging.info(
-            f"Signal={signal}/{stop_loss_signal} RSI={latest_rsi:.2f} Pressure={buy_pressure:.3f} Band={upper:, .0f}/{lower:,.0f}"
+            f"Signal={signal}/{stop_loss_signal} RSI={latest_rsi:.2f} Pressure={buy_pressure:.3f} Band={upper:,.0f}/{lower:,.0f}"
         )
         logging.info(
             f"BTC={btc_available} Profit={profit_rate:.2f}% Price={btc_avg_price:,.0f}/{current_price:,.0f} KRW={krw_available:,.0f}"
