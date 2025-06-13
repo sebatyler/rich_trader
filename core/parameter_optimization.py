@@ -31,6 +31,12 @@ class OptimizedParameters(BaseModel):
     buy_profit_rate: float
     sell_profit_rate: float
     max_krw_buy_ratio: float
+    buy_chunk_ratio: float
+    sell_chunk_ratio: float
+    stop_loss_cooldown_minutes: int
+    max_additional_buys: int
+    add_buy_rsi_threshold: float
+    add_buy_bollinger_band: float
 
 
 def json_default(obj):
@@ -64,6 +70,12 @@ def create_optimization_payload(trade_data, portfolio, current_parameters=None):
             "buy_profit_rate": -5.0,
             "sell_profit_rate": 5.0,
             "max_krw_buy_ratio": 0.1,
+            "buy_chunk_ratio": 0.5,
+            "sell_chunk_ratio": 0.5,
+            "stop_loss_cooldown_minutes": 60,
+            "max_additional_buys": 2,
+            "add_buy_rsi_threshold": 20.0,
+            "add_buy_bollinger_band": -1.5,
         }
     payload = {
         "trade_data": trade_data,
@@ -84,10 +96,17 @@ def request_optimized_parameters(payload):
         "아래는 최근 거래 데이터와 포트폴리오 상태입니다. 이 정보를 바탕으로 트레이딩 알고리즘의 최적화된 파라미터를 제안해 주세요. "
         "최적화 파라미터는 'rsi_period', 'bollinger_period', 'bollinger_std', 'buy_rsi_threshold', 'sell_rsi_threshold', "
         "'buy_pressure_threshold', 'sell_pressure_threshold', 'stop_loss_pct', 'take_profit_pct', "
-        "'buy_profit_rate', 'sell_profit_rate', 'max_krw_buy_ratio'를 반드시 포함해야 합니다.\n"
+        "'buy_profit_rate', 'sell_profit_rate', 'max_krw_buy_ratio', "
+        "'buy_chunk_ratio', 'sell_chunk_ratio', 'stop_loss_cooldown_minutes', 'max_additional_buys', 'add_buy_rsi_threshold', 'add_buy_bollinger_band' "
+        "를 반드시 포함해야 합니다.\n"
         "조건: buy_profit_rate는 반드시 음수(매수 허용 최대 손실률), sell_profit_rate는 반드시 양수(매도 허용 최소 수익률)여야 합니다.\n"
         "- stop_loss_pct, take_profit_pct는 소수(예: 0.02 = 2%)로 입력해야 합니다.\n"
         "- buy_profit_rate, sell_profit_rate는 정수 또는 실수(예: 5 = 5%)로 입력해야 합니다.\n"
+        "- buy_chunk_ratio, sell_chunk_ratio는 0~1 사이의 실수(분할 비율)로 입력해야 합니다.\n"
+        "- stop_loss_cooldown_minutes는 0 이상의 정수(분 단위)로 입력해야 합니다.\n"
+        "- max_additional_buys는 0 이상의 정수(최대 추가매수 횟수)로 입력해야 합니다.\n"
+        "- add_buy_rsi_threshold는 추가매수 허용 RSI 임계값(예: 20 이하)\n"
+        "- add_buy_bollinger_band는 추가매수 허용 볼린저 하단 이탈 배수(예: -1.5)\n"
         "데이터:\n"
     )
     message = (

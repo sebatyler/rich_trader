@@ -236,6 +236,12 @@ class AlgorithmParameter(TimeStampedModel):
     buy_profit_rate = models.FloatField(default=-5.0, help_text="매수 허용 최대 손실률")
     sell_profit_rate = models.FloatField(default=5.0, help_text="매도 허용 최소 수익률")
     max_krw_buy_ratio = models.FloatField(default=0.1, help_text="원화 매수 비율(최대)")
+    buy_chunk_ratio = models.FloatField(default=0.5, help_text="분할 매수 비율 (0~1)")
+    sell_chunk_ratio = models.FloatField(default=0.5, help_text="분할 매도 비율 (0~1)")
+    stop_loss_cooldown_minutes = models.PositiveIntegerField(default=60, help_text="STOP LOSS 후 재진입 쿨타임(분)")
+    max_additional_buys = models.PositiveSmallIntegerField(default=2, help_text="추가 매수(물타기) 최대 횟수")
+    add_buy_rsi_threshold = models.FloatField(default=20.0, help_text="추가 매수 허용 RSI 임계값")
+    add_buy_bollinger_band = models.FloatField(default=-1.5, help_text="추가 매수 허용 볼린저 하단 이탈 배수(σ)")
 
 
 class AutoTrading(TimeStampedModel):

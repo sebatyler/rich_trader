@@ -1123,6 +1123,7 @@ class AutoTradingRunner:
             profit_rate = (btc_now - btc_invested) / btc_invested * 100
         else:
             profit_rate = 0
+
         # AutoTrading 지표/상태 저장
         self.auto_trading.rsi = latest_rsi
         self.auto_trading.bollinger_upper = upper
@@ -1136,7 +1137,9 @@ class AutoTradingRunner:
         self.auto_trading.krw_available = krw_available
         self.auto_trading.save()
 
+        # --- STOP LOSS/TAKE PROFIT 분할매도, 쿨타임 적용 ---
         stop_loss_signal = None
+        now = timezone.now()
         if btc_available > 0:
             stop_loss_signal = ta.check_stop_loss_take_profit(
                 btc_avg_price,
@@ -1154,35 +1157,81 @@ class AutoTradingRunner:
             f"BTC={btc_available} Profit={profit_rate:.2f}% Price={btc_avg_price:,.0f}/{current_price:,.0f} KRW={krw_available:,.0f}"
         )
 
-        trading_obj = None
-        balances = None
-        if btc_available > 0 and stop_loss_signal:
-            if stop_loss_signal in ["STOP LOSS", "TAKE PROFIT"]:
-                order = coinone.sell_ticker("BTC", btc_available, limit_price=bid_prices[0])
-                if order and order.order_id:
-                    order_detail = coinone.get_order_detail(order.order_id, "BTC")
-                    balances, trading_obj = process_trade(
-                        self.user,
-                        symbol="BTC",
-                        quantity=btc_available,
-                        limit_price=bid_prices[0],
-                        crypto_price=current_price,
-                        order_detail=order_detail,
-                        chat_id=self.config.telegram_chat_id,
-                        reason=f"{stop_loss_signal} 조건 만족으로 매도 실행",
-                    )
-                    self.auto_trading.trading = trading_obj
-                    self.auto_trading.save()
-                save_portfolio_snapshot(self.user, balances)
+        # STOP LOSS/TAKE PROFIT 분할매도
+        if btc_available > 0 and stop_loss_signal in ["STOP LOSS", "TAKE PROFIT"]:
+            sell_ratio = algo_param.sell_chunk_ratio
+            sell_quantity = btc_available * sell_ratio
+            # 수량이 0.00000001 미만이면 매도 안함
+            if sell_quantity < 1e-8:
                 return
+            order = coinone.sell_ticker("BTC", sell_quantity, limit_price=bid_prices[0])
+            if order and order.order_id:
+                order_detail = coinone.get_order_detail(order.order_id, "BTC")
+                balances, trading_obj = process_trade(
+                    self.user,
+                    symbol="BTC",
+                    quantity=sell_quantity,
+                    limit_price=bid_prices[0],
+                    crypto_price=current_price,
+                    order_detail=order_detail,
+                    chat_id=self.config.telegram_chat_id,
+                    reason=f"{stop_loss_signal} 조건 만족으로 분할 매도 실행",
+                )
+                self.auto_trading.trading = trading_obj
+                self.auto_trading.save()
+            save_portfolio_snapshot(self.user, balances)
+            return
+
+        # STOP LOSS 쿨타임 체크 (DB에서 최근 STOP LOSS 매도 시각 조회)
+        cooldown = getattr(algo_param, "stop_loss_cooldown_minutes", 60)
+        last_stop_loss = (
+            AutoTrading.objects.filter(
+                trading__side="SELL",
+                trading__coin="BTC",
+                stop_loss_signal="STOP LOSS",
+            )
+            .order_by("-created")
+            .first()
+        )
+        if last_stop_loss:
+            elapsed = (now - last_stop_loss.created).total_seconds() / 60
+            if elapsed < cooldown:
+                logging.info(f"STOP LOSS 쿨타임 적용중: {elapsed:.1f}분 경과, {cooldown}분 대기 필요")
+                return
+
+        # --- 분할매수/추가매수 로직 (최근 매도 이후 매수 기준) ---
+        buy_ratio = getattr(algo_param, "buy_chunk_ratio", 0.5)
+        min_trade_amount = float(btc_market.get("min_order_amount", 0))
+        buy_amount = max(min_trade_amount, krw_available * algo_param.max_krw_buy_ratio * buy_ratio)
+        max_additional_buys = getattr(algo_param, "max_additional_buys", 2)
+        # 1) 가장 최근 SELL(매도) AutoTrading의 id 구하기
+        last_sell = AutoTrading.objects.filter(trading__side="SELL", trading__coin="BTC").order_by("-created").first()
+        if last_sell:
+            # 2) 그 id 이후의 BUY(매수) AutoTrading 중 첫 번째는 최초매수, 그 이후만 추가매수로 카운트
+            buys_after_sell = list(
+                AutoTrading.objects.filter(trading__side="BUY", trading__coin="BTC", id__gt=last_sell.id).order_by(
+                    "created"
+                )
+            )
+        else:
+            buys_after_sell = list(
+                AutoTrading.objects.filter(trading__side="BUY", trading__coin="BTC").order_by("created")
+            )
+        # 최초매수 이후의 추가매수 카운트
+        additional_buy_count = max(0, len(buys_after_sell) - 1)
+        add_buy_allowed = (
+            btc_available > 0
+            and additional_buy_count < max_additional_buys
+            and latest_rsi <= getattr(algo_param, "add_buy_rsi_threshold", 20.0)
+            and (current_price <= lower + getattr(algo_param, "add_buy_bollinger_band", -1.5) * (upper - middle) / 2)
+        )
+        # 신규매수 or 추가매수
         if signal == "BUY" and krw_available >= self.config.min_trade_amount:
             if (
                 (latest_rsi < algo_param.buy_rsi_threshold or current_price <= lower)
                 and buy_pressure >= algo_param.buy_pressure_threshold
-                and (profit_rate <= algo_param.buy_profit_rate or btc_available == 0)
+                and (profit_rate <= algo_param.buy_profit_rate or btc_available == 0 or add_buy_allowed)
             ):
-                min_trade_amount = float(btc_market.get("min_order_amount", 0))
-                buy_amount = max(min_trade_amount, krw_available * algo_param.max_krw_buy_ratio)
                 order = coinone.buy_ticker("BTC", buy_amount)
                 if order and order.order_id:
                     order_detail = coinone.get_order_detail(order.order_id, "BTC")
@@ -1193,18 +1242,22 @@ class AutoTradingRunner:
                         crypto_price=current_price,
                         order_detail=order_detail,
                         chat_id=self.config.telegram_chat_id,
-                        reason="RSI/볼린저/압력/수익률 파라미터 기반 매수",
+                        reason="분할 매수/추가매수 실행",
                     )
                     self.auto_trading.trading = trading_obj
                     self.auto_trading.save()
                 save_portfolio_snapshot(self.user, balances)
+        # 분할매도(일반 매도 신호)
         elif signal == "SELL" and btc_available > 0:
             if (
                 (latest_rsi > algo_param.sell_rsi_threshold or current_price >= upper)
                 and buy_pressure < algo_param.sell_pressure_threshold
                 and profit_rate >= algo_param.sell_profit_rate
             ):
-                sell_quantity = btc_available * 0.5
+                sell_ratio = getattr(algo_param, "sell_chunk_ratio", 0.5)
+                sell_quantity = btc_available * sell_ratio
+                if sell_quantity < 1e-8:
+                    return
                 order = coinone.sell_ticker("BTC", sell_quantity, limit_price=bid_prices[0])
                 if order and order.order_id:
                     order_detail = coinone.get_order_detail(order.order_id, "BTC")
@@ -1216,7 +1269,7 @@ class AutoTradingRunner:
                         crypto_price=current_price,
                         order_detail=order_detail,
                         chat_id=self.config.telegram_chat_id,
-                        reason="RSI/볼린저/압력/수익률 파라미터 기반 매도",
+                        reason="분할 매도 실행",
                     )
                     self.auto_trading.trading = trading_obj
                     self.auto_trading.save()
