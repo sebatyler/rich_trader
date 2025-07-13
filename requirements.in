@@ -9,6 +9,7 @@ django-simple-history==3.7.0
 dj-database-url==2.3.0
 django-json-widget==2.0.1
 django-crontab==0.7.1
+django-constance==4.3.2
 
 psycopg[binary]==3.2.3
 psycopg-pool==3.2.4

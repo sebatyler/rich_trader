@@ -54,6 +54,8 @@ INSTALLED_APPS = [
     "django_json_widget",
     "django_crontab",
     "simple_history",
+    "constance",
+    "constance.backends.database",
     "rich",
     "accounts",
     "trading",
@@ -206,3 +208,13 @@ CRONJOBS = [
 ]
 CRONTAB_COMMAND_PREFIX = "USE_DB_URL=1"
 CRONTAB_DJANGO_SETTINGS_MODULE = "rich_trader.settings.prod"
+
+# Constance settings
+CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
+CONSTANCE_CONFIG = {
+    "UPBIT_DCA_ENABLED": (True, "업비트 DCA(정기적정액투자) 실행 여부"),
+    "UPBIT_AUTO_BUY_ENABLED": (True, "업비트 자동 매수 실행 여부"),
+}
+CONSTANCE_CONFIG_FIELDSETS = {
+    "업비트 자동 거래 설정": ("UPBIT_DCA_ENABLED", "UPBIT_AUTO_BUY_ENABLED"),
+}

@@ -101,6 +101,8 @@ django==5.1.4
     #   django-simple-history
     #   django-storages
     #   sentry-sdk
+django-constance==4.3.2
+    # via -r requirements.in
 django-crontab==0.7.1
     # via -r requirements.in
 django-dotenv==1.4.2

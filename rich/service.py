@@ -6,6 +6,7 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
 
+import constance
 import pandas as pd
 from pydantic import BaseModel
 from pydantic import Field
@@ -907,10 +908,15 @@ Requirements:
 def buy_upbit_coins():
     now = timezone.localtime()
 
-    # 오전 6시에는 DCA 매수
-    if now.hour == 6 and now.minute < 5:
+    # constance 설정 확인
+    dca_enabled = constance.config.UPBIT_DCA_ENABLED
+    auto_buy_enabled = constance.config.UPBIT_AUTO_BUY_ENABLED
+
+    # 오전 6시에는 DCA 매수 (설정이 활성화된 경우)
+    if now.hour == 6 and now.minute < 5 and dca_enabled:
         _buy_upbit_dca()
-    else:
+    # 다른 시간에는 자동 매수 (설정이 활성화된 경우)
+    elif auto_buy_enabled:
         _buy_upbit_coins()
 
     data = upbit.get_balance_data()
