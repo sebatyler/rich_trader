@@ -69,9 +69,11 @@ def get_withdraws(page: int = 1) -> dict:
     return _request("/v1/withdraws", params=params)
 
 
-def get_deposits() -> dict:
+def get_deposits(currency: str = "KRW", page: int = 1) -> dict:
     """입금 내역 조회"""
-    params = {"currency": "KRW"}
+    params = {"page": page}
+    if currency:
+        params["currency"] = currency
     return _request("/v1/deposits", params=params)
 
 
@@ -91,6 +93,18 @@ def get_staking_coins():
 
         page += 1
 
+    page = 1
+    while True:
+        deposits = get_deposits(currency=None, page=page)
+        if not deposits:
+            break
+
+        for deposit in deposits:
+            if deposit["transaction_type"] == "internal" and deposit["txid"].startswith("unstaking"):
+                stakings[deposit["currency"]] -= Decimal(deposit["amount"])
+
+        page += 1
+
     return {k: float(v) for k, v in stakings.items()}
 
 
@@ -101,7 +115,7 @@ def get_available_balances() -> dict:
         symbol = balance["currency"]
         if symbol == "KRW" or float(balance["avg_buy_price"]):
             balances[symbol] = {
-                "quantity": balance["balance"],
+                "quantity": f"{Decimal(balance['balance']) + Decimal(balance['locked']):f}",
                 "avg_buy_price": balance["avg_buy_price"],
             }
 
