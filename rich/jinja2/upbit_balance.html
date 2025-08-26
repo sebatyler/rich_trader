@@ -1,24 +1,26 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="container mx-auto px-4 py-8">
-    <h1 class="text-2xl font-bold mb-6">업비트 잔고 현황 at {{ created.astimezone().strftime('%H:%M %Y/%m/%d') }}</h1>
+<div class="container mx-auto px-2 sm:px-4 py-4 sm:py-8">
+    <h1 class="text-lg sm:text-2xl font-bold mb-4 sm:mb-6">업비트 잔고 현황 at {{ created.astimezone().strftime('%H:%M
+        %Y/%m/%d') }}</h1>
 
     <!-- 합계 정보 -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="text-lg font-semibold text-gray-700 mb-2">총 자산</h3>
-            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(total_value) }}원</p>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2 sm:gap-4 mb-4">
+        <div class="bg-white rounded-lg shadow p-3 sm:p-6">
+            <h3 class="text-sm sm:text-lg font-semibold text-gray-700 mb-1 sm:mb-2">총 자산</h3>
+            <p class="text-lg sm:text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(total_value) }}원</p>
         </div>
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="text-lg font-semibold text-gray-700 mb-2">코인 자산</h3>
-            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(total_coin_value) }}원</p>
-            <p class="text-md text-gray-600 mt-1">{{ '{:.2f}%'.format(total_coin_value / total_value * 100) }}</p>
+        <div class="bg-white rounded-lg shadow p-3 sm:p-6">
+            <h3 class="text-sm sm:text-lg font-semibold text-gray-700 mb-1 sm:mb-2">코인 자산</h3>
+            <p class="text-lg sm:text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(total_coin_value) }}원</p>
+            <p class="text-xs sm:text-md text-gray-600 mt-1">{{ '{:.2f}%'.format(total_coin_value / total_value * 100)
+                }}</p>
         </div>
-        <div class="bg-white rounded-lg shadow p-6">
-            <h3 class="text-lg font-semibold text-gray-700 mb-2">원화 잔고</h3>
-            <p class="text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(krw_value) }}원</p>
-            <p class="text-md text-gray-600 mt-1">{{ '{:.2f}%'.format(krw_weight) }}</p>
+        <div class="bg-white rounded-lg shadow p-3 sm:p-6">
+            <h3 class="text-sm sm:text-lg font-semibold text-gray-700 mb-1 sm:mb-2">원화 잔고</h3>
+            <p class="text-lg sm:text-2xl font-bold text-gray-900">{{ '{:,.0f}'.format(krw_value) }}원</p>
+            <p class="text-xs sm:text-md text-gray-600 mt-1">{{ '{:.2f}%'.format(krw_weight) }}</p>
         </div>
     </div>
 
@@ -27,16 +29,21 @@
         <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
                 <tr>
-                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">코인</th>
-                    <th class="px-4 py-3 text-right text-sm font-medium text-gray-500 uppercase tracking-wider">수량</th>
-                    <th class="px-4 py-3 text-right text-sm font-medium text-gray-500 uppercase tracking-wider">평균 매수가
-                    </th>
-                    <th class="px-4 py-3 text-right text-sm font-medium text-gray-500 uppercase tracking-wider">현재가</th>
-                    <th class="px-4 py-3 text-right text-sm font-medium text-gray-500 uppercase tracking-wider">평가금액
-                    </th>
-                    <th class="px-4 py-3 text-right text-sm font-medium text-gray-500 uppercase tracking-wider">수익률</th>
-                    <th class="px-4 py-3 text-right text-sm font-medium text-gray-500 uppercase tracking-wider">비중</th>
-                    <th class="px-4 py-3 text-left text-sm font-medium text-gray-500 uppercase tracking-wider">코인</th>
+                    <th
+                        class="px-1 sm:px-2 py-1 sm:py-2 text-left text-[10px] sm:text-sm font-medium text-gray-500 uppercase tracking-wider">
+                        코인</th>
+                    <th
+                        class="px-1 sm:px-2 py-1 sm:py-2 text-right text-[10px] sm:text-sm font-medium text-gray-500 uppercase tracking-wider">
+                        평균/수량/수익률</th>
+                    <th
+                        class="px-1 sm:px-2 py-1 sm:py-2 text-right text-[10px] sm:text-sm font-medium text-gray-500 uppercase tracking-wider">
+                        현재가</th>
+                    <th
+                        class="px-1 sm:px-2 py-1 sm:py-2 text-right text-[10px] sm:text-sm font-medium text-gray-500 uppercase tracking-wider">
+                        평가금액</th>
+                    <th
+                        class="px-1 sm:px-2 py-1 sm:py-2 text-right text-[10px] sm:text-sm font-medium text-gray-500 uppercase tracking-wider">
+                        비중</th>
                 </tr>
             </thead>
             <tbody class="bg-white divide-y divide-gray-200">
@@ -44,36 +51,64 @@
                 {%- set profit_rate = (balance.current_price / balance.avg_buy_price * 100 - 100) if
                 balance.avg_buy_price else None %}
                 <tr>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td
+                        class="px-1 sm:px-2 py-1 sm:py-2 whitespace-nowrap text-[12px] sm:text-base font-medium text-gray-900">
                         {{ balance.symbol }}
                         {%- if balance.is_staking %}
                         <span
-                            class="ml-2 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                            스테이킹
+                            class="ml-1 sm:ml-2 px-1 sm:px-2 inline-flex text-[6px] sm:text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                            S
                         </span>
                         {%- endif %}
                     </td>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                        {{ balance.quantity_display }}
-                    </td>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                        {{ balance.avg_buy_price_display if balance.avg_buy_price else '-' }}
-                    </td>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                        {{ balance.current_price_display }}
-                    </td>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
-                        {{ '{:,.0f}'.format(balance.value) }}
+                    <td class="px-1 sm:px-2 py-1 sm:py-2 text-center text-[10px] sm:text-sm text-gray-900">
+                        <div class="space-y-0.5">
+                            <div class="text-right">
+                                {{ balance.avg_buy_price_display if balance.avg_buy_price else '-' }}
+                            </div>
+                            <div class="text-right">{{ balance.quantity_display }}</div>
+                            <div
+                                class="text-right {{ 'text-green-600' if profit_rate and profit_rate > 0 else 'text-red-600' if profit_rate and profit_rate < 0 else 'text-gray-900' }}">
+                                {{ '{:.2f}%'.format(profit_rate) if profit_rate is not none else '-' }}
+                            </div>
+                        </div>
                     </td>
                     <td
-                        class="px-4 py-4 whitespace-nowrap text-sm text-right {{ 'text-green-600' if profit_rate and profit_rate > 0 else 'text-red-600' if profit_rate and profit_rate < 0 else 'text-gray-900' }}">
-                        {{ '{:.2f}%'.format(profit_rate) if profit_rate is not none else '-' }}
+                        class="px-1 sm:px-2 py-1 sm:py-2 whitespace-nowrap text-[10px] sm:text-sm text-right text-gray-900">
+                        {{ balance.current_price_display }}
+                        {%- if price_changes and balance.symbol in price_changes %}
+                        <div class="text-[8px] sm:text-xs mt-0.5">
+                            {%- for change in price_changes[balance.symbol][:3] %}
+                            {%- set change_index = loop.index0 %}
+                            <div class="{{ 'text-green-600' if change >= 0 else 'text-red-600' }} cursor-pointer hover:bg-gray-100 px-1 rounded"
+                                title="{{ price_change_timestamps[balance.symbol][change_index].strftime('%m/%d %H:%M') if price_change_timestamps and balance.symbol in price_change_timestamps and price_change_timestamps[balance.symbol]|length > change_index else '' }}"
+                                onclick="showTooltip(event, '{{ price_change_timestamps[balance.symbol][change_index].strftime('%m/%d %H:%M') if price_change_timestamps and balance.symbol in price_change_timestamps and price_change_timestamps[balance.symbol]|length > change_index else '' }}')">
+                                {{ '{:.2f}%'.format(change) }}
+                            </div>
+                            {%- endfor %}
+                        </div>
+                        {%- endif %}
                     </td>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm text-right text-gray-900">
+                    <td
+                        class="px-1 sm:px-2 py-1 sm:py-2 whitespace-nowrap text-[10px] sm:text-sm text-right text-gray-900">
+                        {{ '{:,.0f}'.format(balance.value) }}
+                        {%- if price_changes and balance.symbol in price_changes %}
+                        <div class="text-[8px] sm:text-xs mt-0.5">
+                            {%- for change in price_changes[balance.symbol][:3] %}
+                            {%- set change_index = loop.index0 %}
+                            {%- set change_amount = (Decimal(balance.value) * change / 100) %}
+                            <div class="{{ 'text-green-600' if change >= 0 else 'text-red-600' }} cursor-pointer hover:bg-gray-100 px-1 rounded"
+                                title="{{ price_change_timestamps[balance.symbol][change_index].strftime('%m/%d %H:%M') if price_change_timestamps and balance.symbol in price_change_timestamps and price_change_timestamps[balance.symbol]|length > change_index else '' }}"
+                                onclick="showTooltip(event, '{{ price_change_timestamps[balance.symbol][change_index].strftime('%m/%d %H:%M') if price_change_timestamps and balance.symbol in price_change_timestamps and price_change_timestamps[balance.symbol]|length > change_index else '' }}')">
+                                {{ '{:+,.0f}'.format(change_amount) }}
+                            </div>
+                            {%- endfor %}
+                        </div>
+                        {%- endif %}
+                    </td>
+                    <td
+                        class="px-1 sm:px-2 py-1 sm:py-2 whitespace-nowrap text-[10px] sm:text-sm text-right text-gray-900">
                         {{ '{:.2f}%'.format(balance.weight) }}
-                    </td>
-                    <td class="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {{ balance.symbol }}
                     </td>
                 </tr>
                 {%- endfor %}
@@ -81,4 +116,32 @@
         </table>
     </div>
 </div>
+
+<!-- 커스텀 툴팁 -->
+<div id="custom-tooltip" class="fixed hidden bg-black text-white text-xs px-2 py-1 rounded pointer-events-none z-50">
+</div>
+
+<script>
+    function showTooltip(event, timestamp) {
+        const tooltip = document.getElementById('custom-tooltip');
+        if (timestamp) {
+            tooltip.textContent = timestamp;
+            tooltip.style.left = event.pageX + 10 + 'px';
+            tooltip.style.top = event.pageY - 30 + 'px';
+            tooltip.classList.remove('hidden');
+
+            // 3초 후 자동으로 숨김
+            setTimeout(() => {
+                tooltip.classList.add('hidden');
+            }, 3000);
+        }
+    }
+
+    // 툴팁 외부 클릭 시 숨김
+    document.addEventListener('click', function (event) {
+        if (!event.target.hasAttribute('onclick')) {
+            document.getElementById('custom-tooltip').classList.add('hidden');
+        }
+    });
+</script>
 {% endblock %}
