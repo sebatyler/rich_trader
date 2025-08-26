@@ -919,6 +919,10 @@ def buy_upbit_coins():
     elif auto_buy_enabled:
         _buy_upbit_coins()
 
+    update_upbit_portfolio()
+
+
+def update_upbit_portfolio():
     data = upbit.get_balance_data()
     Portfolio.objects.create(
         exchange=ExchangeChoices.UPBIT,

@@ -13,6 +13,7 @@ from django.utils import timezone
 from accounts.models import User
 from core.choices import ExchangeChoices
 from core.models import choice_field
+from core.utils import format_quantity
 
 
 class TradingConfig(TimeStampedModel):
@@ -171,14 +172,30 @@ class Portfolio(TimeStampedModel):
         return self.krw_balance / self.total_portfolio_value * 100
 
     def export(self):
-        return {
+        data = {
             "balances": self.balances,
             "total_coin_value": self.total_coin_value,
             "krw_value": self.krw_balance,
             "krw_weight": self.krw_weight,
             "total_value": self.total_portfolio_value,
-            "created": self.created,
+            "created": self.created.astimezone(),
         }
+
+        # float 타입으로 변환
+        for balance_dict in data["balances"]:
+            update_dict = {}
+            for key, value in balance_dict.items():
+                if key in ("quantity", "avg_buy_price", "current_price"):
+                    val = balance_dict[key] = Decimal(value)
+                    formatted = format_quantity(val)
+                    if key.endswith("_price") and val >= 100:
+                        formatted = formatted.split(".")[0]
+                    update_dict[f"{key}_display"] = formatted
+                elif isinstance(value, str) and value[0].isdigit():
+                    balance_dict[key] = float(value)
+            balance_dict.update(update_dict)
+
+        return data
 
 
 class UpbitTrading(TimeStampedModel):

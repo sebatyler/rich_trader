@@ -1,3 +1,5 @@
+from collections import defaultdict
+from datetime import timedelta
 from decimal import Decimal
 
 from django.http import HttpResponse
@@ -60,11 +62,61 @@ class UpbitMixin(View):
         return super().dispatch(request, *args, **kwargs)
 
     def get_upbit_data(self):
-        portfolio = Portfolio.objects.filter(exchange=ExchangeChoices.UPBIT).order_by("-id").first()
-        if portfolio:
-            return portfolio.export()
+        now = timezone.localtime()
+        today = now.date()
 
-        return upbit.get_balance_data()
+        # 최신 포트폴리오 데이터 조회
+        portfolio_queryset = Portfolio.objects.filter(exchange=ExchangeChoices.UPBIT).order_by("-id")
+        recent_portfolios = list(portfolio_queryset[:2])
+
+        # 현재 포트폴리오 데이터 (가장 최신)
+        current_portfolio = recent_portfolios[0]
+        current_data = current_portfolio.export()
+
+        # 비교용 포트폴리오들 수집
+        comparison_portfolios = [
+            # 직전 포트폴리오
+            recent_portfolios[1],
+            # 오늘 첫 포트폴리오
+            portfolio_queryset.filter(created__date=today).order_by("created").first(),
+            # 24시간 전 포트폴리오
+            portfolio_queryset.filter(created__gte=now - timedelta(hours=24)).order_by("created").first(),
+        ]
+
+        # 코인별 가격 변화율 계산
+        price_changes = defaultdict(list)
+        price_change_timestamps = defaultdict(list)
+
+        for historical_portfolio in comparison_portfolios:
+            if not historical_portfolio:
+                continue
+
+            historical_data = historical_portfolio.export()
+
+            for current_balance in current_data["balances"]:
+                for historical_balance in historical_data["balances"]:
+                    if current_balance["symbol"] == historical_balance["symbol"]:
+                        historical_price = Decimal(historical_balance["current_price"])
+                        current_price = Decimal(current_balance["current_price"])
+
+                        # 가격 변화율 계산 (백분율)
+                        price_change_percentage = (current_price / historical_price - 1) * 100
+
+                        price_changes[current_balance["symbol"]].append(price_change_percentage)
+                        price_change_timestamps[current_balance["symbol"]].append(
+                            historical_portfolio.created.astimezone()
+                        )
+                        break
+
+        # 결과 데이터에 변화율 정보 추가
+        current_data.update(
+            {
+                "price_changes": price_changes,
+                "price_change_timestamps": price_change_timestamps,
+            }
+        )
+
+        return current_data
 
 
 class UpbitBalanceView(UpbitMixin, View):
@@ -79,22 +131,6 @@ class UpbitBalanceTemplateView(UpbitMixin, TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
         data = self.get_upbit_data()
-
-        # float 타입으로 변환
-        for balance_dict in data["balances"]:
-            update_dict = {}
-            for key, value in balance_dict.items():
-                if key in ("quantity", "avg_buy_price", "current_price"):
-                    val = balance_dict[key] = Decimal(value)
-                    formatted = format_quantity(val)
-                    if key.endswith("_price") and val >= 100:
-                        formatted = formatted.split(".")[0]
-                    update_dict[f"{key}_display"] = formatted
-                elif isinstance(value, str) and value[0].isdigit():
-                    balance_dict[key] = float(value)
-            balance_dict.update(update_dict)
-
         context.update(data)
         return context
