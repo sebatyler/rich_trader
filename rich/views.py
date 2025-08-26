@@ -80,7 +80,7 @@ class UpbitMixin(View):
             # 오늘 첫 포트폴리오
             portfolio_queryset.filter(created__date=today).order_by("created").first(),
             # 24시간 전 포트폴리오
-            portfolio_queryset.filter(created__gte=now - timedelta(hours=24)).order_by("created").first(),
+            portfolio_queryset.filter(created__lt=now - timedelta(hours=24)).order_by("-created").first(),
         ]
 
         # 코인별 가격 변화율 계산
