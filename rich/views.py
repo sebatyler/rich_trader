@@ -86,6 +86,7 @@ class UpbitMixin(View):
         # 코인별 가격 변화율 계산
         price_changes = defaultdict(list)
         price_change_timestamps = defaultdict(list)
+        historical_prices = defaultdict(list)
 
         for historical_portfolio in comparison_portfolios:
             if not historical_portfolio:
@@ -106,6 +107,7 @@ class UpbitMixin(View):
                         price_change_timestamps[current_balance["symbol"]].append(
                             historical_portfolio.created.astimezone()
                         )
+                        historical_prices[current_balance["symbol"]].append(historical_price)
                         break
 
         # 결과 데이터에 변화율 정보 추가
@@ -113,6 +115,7 @@ class UpbitMixin(View):
             {
                 "price_changes": price_changes,
                 "price_change_timestamps": price_change_timestamps,
+                "historical_prices": historical_prices,
             }
         )
 

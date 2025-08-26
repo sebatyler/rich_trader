@@ -79,15 +79,23 @@
                         {{ balance.current_price_display }}
                         {%- if price_changes and balance.symbol in price_changes %}
                         <div class="text-[12px] sm:text-xs mt-0.5">
-                            {%- for change in price_changes[balance.symbol][:3] %}
-                            {%- set change_index = loop.index0 %}
+                            {%- for change_index in range(3) %}
                             {%- set actual_index = change_index * 2 if price_changes[balance.symbol]|length > 3 else
                             change_index %}
+                            {%- if price_changes[balance.symbol]|length > actual_index %}
+                            {%- set change = price_changes[balance.symbol][actual_index] %}
+                            {%- set historical_price = historical_prices[balance.symbol][actual_index] if
+                            historical_prices and balance.symbol in historical_prices and
+                            historical_prices[balance.symbol]|length > actual_index else '' %}
+                            {%- set timestamp = price_change_timestamps[balance.symbol][actual_index] if
+                            price_change_timestamps and balance.symbol in price_change_timestamps and
+                            price_change_timestamps[balance.symbol]|length > actual_index else '' %}
                             <div class="{{ 'text-green-600' if change >= 0 else 'text-red-600' }} cursor-pointer hover:bg-gray-100 px-1 rounded"
-                                title="{{ price_change_timestamps[balance.symbol][actual_index].strftime('%m/%d %H:%M') if price_change_timestamps and balance.symbol in price_change_timestamps and price_change_timestamps[balance.symbol]|length > actual_index else '' }}"
-                                onclick="showTooltip(event, '{{ price_change_timestamps[balance.symbol][actual_index].strftime('%m/%d %H:%M') if price_change_timestamps and balance.symbol in price_change_timestamps and price_change_timestamps[balance.symbol]|length > actual_index else '' }}')">
+                                title="{{ timestamp.strftime('%m/%d %H:%M') + ' - ₩' + '{:,.0f}'.format(historical_price) if timestamp and historical_price else '' }}"
+                                onclick="showTooltip(event, '{{ timestamp.strftime('%m/%d %H:%M') if timestamp else '' }}', '{{ '{:,.0f}'.format(historical_price) if historical_price else '' }}')">
                                 {{ '{:.2f}%'.format(change) }}
                             </div>
+                            {%- endif %}
                             {%- endfor %}
                         </div>
                         {%- endif %}
@@ -97,16 +105,24 @@
                         {{ '{:,.0f}'.format(balance.value) }}
                         {%- if price_changes and balance.symbol in price_changes %}
                         <div class="text-[12px] sm:text-xs mt-0.5">
-                            {%- for change in price_changes[balance.symbol][:3] %}
-                            {%- set change_index = loop.index0 %}
+                            {%- for change_index in range(3) %}
                             {%- set actual_index = change_index * 2 if price_changes[balance.symbol]|length > 3 else
                             change_index %}
+                            {%- if price_changes[balance.symbol]|length > actual_index %}
+                            {%- set change = price_changes[balance.symbol][actual_index] %}
                             {%- set change_amount = (Decimal(balance.value) * change / 100) %}
+                            {%- set historical_price = historical_prices[balance.symbol][actual_index] if
+                            historical_prices and balance.symbol in historical_prices and
+                            historical_prices[balance.symbol]|length > actual_index else '' %}
+                            {%- set timestamp = price_change_timestamps[balance.symbol][actual_index] if
+                            price_change_timestamps and balance.symbol in price_change_timestamps and
+                            price_change_timestamps[balance.symbol]|length > actual_index else '' %}
                             <div class="{{ 'text-green-600' if change >= 0 else 'text-red-600' }} cursor-pointer hover:bg-gray-100 px-1 rounded"
-                                title="{{ price_change_timestamps[balance.symbol][actual_index].strftime('%m/%d %H:%M') if price_change_timestamps and balance.symbol in price_change_timestamps and price_change_timestamps[balance.symbol]|length > actual_index else '' }}"
-                                onclick="showTooltip(event, '{{ price_change_timestamps[balance.symbol][actual_index].strftime('%m/%d %H:%M') if price_change_timestamps and balance.symbol in price_change_timestamps and price_change_timestamps[balance.symbol]|length > actual_index else '' }}')">
+                                title="{{ timestamp.strftime('%m/%d %H:%M') + ' - ₩' + '{:,.0f}'.format(historical_price) if timestamp and historical_price else '' }}"
+                                onclick="showTooltip(event, '{{ timestamp.strftime('%m/%d %H:%M') if timestamp else '' }}', '{{ '{:,.0f}'.format(historical_price) if historical_price else '' }}')">
                                 {{ '{:+,.0f}'.format(change_amount) }}
                             </div>
+                            {%- endif %}
                             {%- endfor %}
                         </div>
                         {%- endif %}
@@ -123,12 +139,39 @@
 </div>
 
 <script>
-    function showTooltip(event, timestamp) {
+    function showTooltip(event, timestamp, historical_price) {
         const tooltip = document.getElementById('custom-tooltip');
         if (timestamp) {
-            tooltip.textContent = timestamp;
-            tooltip.style.left = event.pageX + 10 + 'px';
-            tooltip.style.top = event.pageY - 30 + 'px';
+            const tooltipContent = timestamp + (historical_price ? ' - ₩' + historical_price : '');
+            tooltip.textContent = tooltipContent;
+
+            // 마우스 위치 기준으로 툴팁 위치 계산
+            const mouseX = event.clientX;
+            const mouseY = event.clientY;
+
+            // 툴팁 크기 고려하여 위치 조정 (내용이 길어졌으므로 크기 증가)
+            const tooltipWidth = 120; // 예상 툴팁 너비 증가
+            const tooltipHeight = 24; // 예상 툴팁 높이
+
+            // 화면 경계 체크
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+
+            let left = mouseX + 10;
+            let top = mouseY - tooltipHeight - 10;
+
+            // 오른쪽 경계 체크
+            if (left + tooltipWidth > windowWidth) {
+                left = mouseX - tooltipWidth - 10;
+            }
+
+            // 위쪽 경계 체크
+            if (top < 0) {
+                top = mouseY + 20;
+            }
+
+            tooltip.style.left = left + 'px';
+            tooltip.style.top = top + 'px';
             tooltip.classList.remove('hidden');
 
             // 3초 후 자동으로 숨김
@@ -143,6 +186,11 @@
         if (!event.target.hasAttribute('onclick')) {
             document.getElementById('custom-tooltip').classList.add('hidden');
         }
+    });
+
+    // 마우스가 툴팁 영역을 벗어날 때도 숨김
+    document.addEventListener('mouseleave', function () {
+        document.getElementById('custom-tooltip').classList.add('hidden');
     });
 </script>
 {% endblock %}
