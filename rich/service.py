@@ -39,14 +39,172 @@ from core.utils import dict_at
 from core.utils import dict_omit
 from core.utils import format_currency
 from core.utils import format_quantity
+from core.indicators import rsi as calc_rsi
+from core.indicators import macd as calc_macd
+from core.indicators import ema as calc_ema
+from core.indicators import volume_ma as calc_volume_ma
+from core.indicators import atr as calc_atr
+from core import bybit
 from trading.models import AlgorithmParameter
 from trading.models import AutoTrading
 from trading.models import Portfolio
 from trading.models import Trading
 from trading.models import TradingConfig
 from trading.models import UpbitTrading
+from trading.models import BybitSignal
 
 from .models import CryptoListing
+
+
+def _compute_indicators(df: pd.DataFrame, price_col: str = "close"):
+    close = df[price_col]
+    high = df["high"]
+    low = df["low"]
+    volume = df["volume"]
+
+    rsi_series = calc_rsi(close, period=14)
+    macd_line, signal_line, hist = calc_macd(close, fast=12, slow=26, signal=9)
+    ema20 = calc_ema(close, span=20)
+    ema50 = calc_ema(close, span=50)
+    vma20 = calc_volume_ma(df["volume"], period=20)
+    atr14 = calc_atr(high, low, close, period=14)
+
+    last = df.iloc[-1]
+    indicators = {
+        "rsi": float(rsi_series.iloc[-1]),
+        "macd": float(macd_line.iloc[-1]),
+        "macd_signal": float(signal_line.iloc[-1]),
+        "macd_hist": float(hist.iloc[-1]),
+        "ema20": float(ema20.iloc[-1]),
+        "ema50": float(ema50.iloc[-1]),
+        "volume": float(volume.iloc[-1]),
+        "volume_ma20": float(vma20.iloc[-1]),
+        "atr": float(atr14.iloc[-1]),
+        "close": float(last[price_col]),
+    }
+    return indicators
+
+
+def _rule_based_buy_signal(ind_5m: dict, ind_15m: dict) -> bool:
+    cond_rsi = ind_5m["rsi"] > 40 and ind_15m["rsi"] >= 45
+    cond_macd = ind_5m["macd_hist"] > 0
+    cond_trend = ind_5m["close"] > ind_5m["ema20"] and ind_5m["ema20"] >= ind_5m["ema50"]
+    cond_vol = ind_5m["volume"] >= ind_5m["volume_ma20"]
+    cond_15m_trend = ind_15m["ema20"] >= ind_15m["ema50"]
+    return cond_rsi and cond_macd and cond_trend and cond_vol and cond_15m_trend
+
+
+def _format_telegram_message(symbol: str, tf5: dict, tf15: dict, decision: dict) -> str:
+    lines = [
+        f"Bybit {symbol} Buy Signal",
+        f"5m close: {tf5['close']:.2f} | RSI: {tf5['rsi']:.1f} | MACD hist: {tf5['macd_hist']:.3f}",
+        f"15m RSI: {tf15['rsi']:.1f} | EMA20/50: {tf15['ema20']:.2f}/{tf15['ema50']:.2f}",
+        f"Entry: {decision.get('entry_price')} | SL: {decision.get('stop_loss')} | TP: {decision.get('take_profit')}",
+        f"Expected: {decision.get('expected_profit_pct')}% (10x: {decision.get('expected_profit_pct_with_10x')}%)",
+        f"Confidence: {decision.get('confidence')}",
+        decision.get("reason", ""),
+    ]
+    return "\n".join([str(x) for x in lines if x is not None])
+
+
+def scan_bybit_signals():
+    now = timezone.now()
+    symbols = ["BTCUSDT", "ETHUSDT"]
+    results = []
+
+    # Resolve chat_id: prefer specific email, fallback to superuser
+    target_user = User.objects.filter(email="sebatyler@gmail.com").first()
+    if target_user:
+        config = TradingConfig.objects.filter(user=target_user).first()
+    else:
+        config = TradingConfig.objects.filter(user__is_superuser=True).first()
+    chat_id = config.telegram_chat_id if config else None
+
+    for symbol in symbols:
+        # fetch klines
+        rows_5 = bybit.get_kline(symbol, interval="5", limit=200, category="linear")
+        rows_15 = bybit.get_kline(symbol, interval="15", limit=200, category="linear")
+        df5 = bybit.klines_to_dataframe(rows_5)
+        df15 = bybit.klines_to_dataframe(rows_15)
+
+        # ensure closed candle only
+        df5 = bybit.drop_unclosed_candle(df5, interval_minutes=5)
+        df15 = bybit.drop_unclosed_candle(df15, interval_minutes=15)
+        if len(df5) < 50 or len(df15) < 50:
+            continue
+
+        ind5 = _compute_indicators(df5)
+        ind15 = _compute_indicators(df15)
+        should_buy = _rule_based_buy_signal(ind5, ind15)
+
+        # LLM decision
+        payload = {
+            "symbol": symbol,
+            "leverage": 10,
+            "timeframes": ["5m", "15m"],
+            "indicators": {
+                "rsi_5m": ind5["rsi"],
+                "rsi_15m": ind15["rsi"],
+                "macd_5m": {"macd": ind5["macd"], "signal": ind5["macd_signal"], "hist": ind5["macd_hist"]},
+                "ema_5m": {"ema20": ind5["ema20"], "ema50": ind5["ema50"]},
+                "ema_15m": {"ema20": ind15["ema20"], "ema50": ind15["ema50"]},
+                "vol_ma_5m": {"vol": ind5["volume"], "vol_ma20": ind5["volume_ma20"]},
+                "atr_5m": ind5["atr"],
+            },
+            "last_closed_candle": {"time": df5.iloc[-1]["time"].isoformat(), "close": ind5["close"]},
+            "rule_based_buy": should_buy,
+        }
+
+        system = (
+            "You are a trading assistant. Given indicator values for Bybit USDT perpetual futures with cross 10x, "
+            "decide if a buy entry is reasonable now based ONLY on provided numbers. Output concise JSON with keys: "
+            "buy_signal(bool), confidence(0..1), reason, entry_price, stop_loss, take_profit, expected_profit_pct, expected_profit_pct_with_10x."
+        )
+        try:
+            content = json.dumps(payload, ensure_ascii=False)
+            llm_text = invoke_llm(system, content)
+            # try to parse JSON
+            decision = json.loads(llm_text) if llm_text.strip().startswith("{") else {"raw": llm_text}
+        except Exception as e:
+            decision = {"error": str(e)}
+
+        # persist snapshot for 5m timeframe only
+        BybitSignal.objects.update_or_create(
+            symbol=symbol,
+            timeframe="5m",
+            last_candle_time=df5.iloc[-1]["time"],
+            defaults=dict(
+                close_price=ind5["close"],
+                rsi=ind5["rsi"],
+                macd=ind5["macd"],
+                macd_signal=ind5["macd_signal"],
+                macd_hist=ind5["macd_hist"],
+                ema20=ind5["ema20"],
+                ema50=ind5["ema50"],
+                volume=ind5["volume"],
+                volume_ma20=ind5["volume_ma20"],
+                atr=ind5["atr"],
+                buy_signal=bool(decision.get("buy_signal", should_buy)),
+                confidence=decision.get("confidence"),
+                entry_price=decision.get("entry_price"),
+                stop_loss=decision.get("stop_loss"),
+                take_profit=decision.get("take_profit"),
+                expected_profit_pct=decision.get("expected_profit_pct"),
+                decision=decision,
+            ),
+        )
+
+        if (decision.get("buy_signal") or should_buy) and chat_id:
+            text = _format_telegram_message(symbol, ind5, ind15, decision)
+            try:
+                send_message(text, chat_id=chat_id, is_markdown=False)
+            except Exception:
+                # fallback without markdown or extra options
+                send_message(text, chat_id=chat_id)
+
+        results.append({"symbol": symbol, "should_buy": should_buy, "decision": decision})
+
+    return results
 
 
 class BaseStrippedModel(BaseModel):

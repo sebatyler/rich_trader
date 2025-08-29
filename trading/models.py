@@ -236,6 +236,44 @@ class UpbitTrading(TimeStampedModel):
         super().save(*args, **kwargs)
 
 
+class BybitSignal(TimeStampedModel):
+    symbol = models.CharField(max_length=20)
+    timeframe = models.CharField(max_length=10)  # e.g., 5m, 15m
+    last_candle_time = models.DateTimeField()
+    close_price = models.DecimalField(max_digits=20, decimal_places=8)
+
+    # indicators snapshot
+    rsi = models.FloatField(null=True, blank=True)
+    macd = models.FloatField(null=True, blank=True)
+    macd_signal = models.FloatField(null=True, blank=True)
+    macd_hist = models.FloatField(null=True, blank=True)
+    ema20 = models.FloatField(null=True, blank=True)
+    ema50 = models.FloatField(null=True, blank=True)
+    volume = models.FloatField(null=True, blank=True)
+    volume_ma20 = models.FloatField(null=True, blank=True)
+    atr = models.FloatField(null=True, blank=True)
+
+    # decision
+    buy_signal = models.BooleanField(default=False)
+    confidence = models.FloatField(null=True, blank=True)
+    entry_price = models.FloatField(null=True, blank=True)
+    stop_loss = models.FloatField(null=True, blank=True)
+    take_profit = models.FloatField(null=True, blank=True)
+    expected_profit_pct = models.FloatField(null=True, blank=True)
+
+    # raw llm json
+    decision = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["symbol", "timeframe", "last_candle_time"]),
+        ]
+        unique_together = ("symbol", "timeframe", "last_candle_time")
+
+    def __str__(self):
+        return f"BybitSignal({self.symbol},{self.timeframe})@{self.last_candle_time.isoformat()}"
+
+
 class AlgorithmParameter(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     reasoning = models.TextField(null=True, blank=True)
