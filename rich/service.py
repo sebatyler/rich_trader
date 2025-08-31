@@ -176,8 +176,9 @@ def scan_bybit_signals():
                 content,
                 model=BybitDecision,
                 structured_output=True,
+                template_format="jinja2",
             )
-            decision = decision_obj.dict()
+            decision = decision_obj.model_dump()
         except Exception as e:
             decision = {"error": str(e)}
 
