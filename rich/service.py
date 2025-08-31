@@ -159,24 +159,29 @@ def scan_bybit_signals():
         }
 
         class BybitDecision(BaseModel):
-            buy_signal: bool
-            confidence: float | None = None
-            reason: str | None = None
-            entry_price: float | None = None
-            stop_loss: float | None = None
-            take_profit: float | None = None
-            expected_profit_pct: float | None = None
-            expected_profit_pct_with_10x: float | None = None
+            buy_signal: bool = Field(..., description="Whether to buy the coin")
+            confidence: float = Field(..., description="The confidence")
+            reason: str = Field(..., description="The reason")
+            entry_price: float = Field(..., description="The entry price")
+            stop_loss: float = Field(..., description="The stop loss")
+            take_profit: float = Field(..., description="The take profit")
+            expected_profit_pct: float = Field(..., description="The expected profit percentage")
+            expected_profit_pct_with_10x: float = Field(
+                ..., description="The expected profit percentage with 10x leverage"
+            )
 
         system = (
             "You are a trading assistant for Bybit USDT perpetual futures (cross 10x). "
             "Decide if a short-term BUY entry is reasonable now based ONLY on the provided indicators and last closed candles. "
             "Optimize for day trading/scalping: prefer setups with near-term momentum (next 1-3 candles on 5m) and quick realizable profit. "
             "Be conservative if signals are mixed or volume confirmation is weak. "
-            "Include derivatives trading fees in all profit expectations. Use taker fee 0.055% and maker fee 0.020%. "
-            "Unless otherwise obvious, assume taker entry and taker exit for faster fills in scalping. Compute expected_profit_pct NET of the assumed fees (both legs). "
-            "Respond strictly in JSON matching the provided schema. The 'reason' must be written in Korean (<= 2 sentences). "
-            "If buy_signal is true, suggest entry/SL/TP suited for fast take-profit and risk-reward >= 1.5 whenever possible (net of fees)."
+            "Include derivatives trading fees in all profit expectations. Taker fee = 0.055% per leg, Maker fee = 0.020% per leg. "
+            "Assume TAKER entry and TAKER exit unless you explicitly decide otherwise for exit. "
+            "Compute expected_profit_pct exactly as: ((take_profit / entry_price) - 1 - entry_fee - exit_fee) * 100, where entry_fee and exit_fee are the per-leg fees you assumed (by default both = taker fee). "
+            "Set expected_profit_pct_with_10x = expected_profit_pct * 10 (the leverage). Do not add fees again when scaling with leverage. "
+            "If expected_profit_pct < 0.1, set buy_signal=false regardless of other signals and briefly explain why in Korean (<= 2 sentences). "
+            "Only set buy_signal=true when risk-reward >= 1.5 (net of fees) and the setup is likely realizable within the next 1-3 5m candles. "
+            "Respond strictly in JSON matching the provided schema. The 'reason' must be written in Korean (<= 2 sentences)."
         )
         try:
             content = json.dumps(payload, ensure_ascii=False)
@@ -221,11 +226,13 @@ def scan_bybit_signals():
             if decision.get("error"):
                 logging.exception(f"Bybit decision error for {symbol}: {decision['error']}")
             else:
-                text = _format_telegram_message(symbol, ind5, ind15, decision)
-                try:
-                    send_message(text, chat_id=chat_id, is_markdown=False)
-                except Exception:
-                    logging.exception(f"Failed to send Telegram message for {symbol}")
+                exp = decision.get("expected_profit_pct")
+                if decision.get("buy_signal") and isinstance(exp, (int, float)) and exp >= 0.1:
+                    text = _format_telegram_message(symbol, ind5, ind15, decision)
+                    try:
+                        send_message(text, chat_id=chat_id, is_markdown=False)
+                    except Exception:
+                        logging.exception(f"Failed to send Telegram message for {symbol}")
 
         results.append({"symbol": symbol, "should_buy": should_buy, "decision": decision})
 
