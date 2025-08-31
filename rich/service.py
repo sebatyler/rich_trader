@@ -159,6 +159,7 @@ def scan_bybit_signals():
                 "atr_5m": ind5["atr"],
             },
             "last_closed_candle": {"time": df5.iloc[-1]["time"].isoformat(), "close": ind5["close"]},
+            "fees": {"derivatives_taker": 0.00055, "derivatives_maker": 0.0002},
             "rule_based_buy": should_buy,
         }
 
@@ -177,8 +178,10 @@ def scan_bybit_signals():
             "Decide if a short-term BUY entry is reasonable now based ONLY on the provided indicators and last closed candles. "
             "Optimize for day trading/scalping: prefer setups with near-term momentum (next 1-3 candles on 5m) and quick realizable profit. "
             "Be conservative if signals are mixed or volume confirmation is weak. "
+            "Include derivatives trading fees in all profit expectations. Use taker fee 0.055% and maker fee 0.020%. "
+            "Unless otherwise obvious, assume taker entry and taker exit for faster fills in scalping. Compute expected_profit_pct NET of the assumed fees (both legs). "
             "Respond strictly in JSON matching the provided schema. The 'reason' must be written in Korean (<= 2 sentences). "
-            "If buy_signal is true, suggest entry/SL/TP suited for fast take-profit and risk-reward >= 1.5 whenever possible."
+            "If buy_signal is true, suggest entry/SL/TP suited for fast take-profit and risk-reward >= 1.5 whenever possible (net of fees)."
         )
         try:
             content = json.dumps(payload, ensure_ascii=False)
