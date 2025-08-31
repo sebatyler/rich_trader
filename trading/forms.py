@@ -17,6 +17,7 @@ class TradingConfigForm(forms.ModelForm):
     target_coins = forms.CharField(
         label="거래 코인",
         help_text="거래할 코인 심볼을 쉼표(,)로 구분하여 입력하세요 (예: BTC, ETH)",
+        required=False,
         widget=forms.Textarea(
             attrs={
                 "rows": 2,
@@ -25,10 +26,24 @@ class TradingConfigForm(forms.ModelForm):
         ),
     )
 
+    bybit_target_coins = forms.CharField(
+        label="Bybit 알림 심볼",
+        help_text="알림 받을 심볼을 쉼표(,)로 구분하여 입력하세요 (예: BTCUSDT, ETHUSDT)",
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "rows": 2,
+                "class": coin_widget_class,
+            }
+        ),
+    )
+
     class Meta:
         model = TradingConfig
         fields = [
             "target_coins",
+            "bybit_alert_enabled",
+            "bybit_target_coins",
             "min_amount",
             "max_amount",
             "step_amount",
@@ -42,6 +57,11 @@ class TradingConfigForm(forms.ModelForm):
             "max_amount": amount_widget,
             "step_amount": amount_widget,
             "min_trade_amount": amount_widget,
+            "bybit_alert_enabled": forms.CheckboxInput(
+                attrs={
+                    "class": "h-5 w-5 rounded border-2 border-gray-300 text-indigo-600 focus:ring-indigo-500 shadow-sm",
+                }
+            ),
             "min_coins": forms.NumberInput(
                 attrs={
                     "class": coin_widget_class,
@@ -68,13 +88,18 @@ class TradingConfigForm(forms.ModelForm):
             # JSON 리스트를 콤마로 구분된 문자열로 변환
             self.initial["target_coins"] = ", ".join(self.instance.target_coins)
 
+        if self.instance and self.instance.bybit_target_coins:
+            self.initial["bybit_target_coins"] = ", ".join(self.instance.bybit_target_coins)
+
     def clean_target_coins(self):
         value = self.cleaned_data["target_coins"]
 
         # 콤마로 구분된 문자열을 리스트로 변환
         coins = [coin.strip().upper() for coin in value.split(",") if coin.strip()]
+        return coins
 
-        if not coins:
-            raise forms.ValidationError("최소 하나의 코인을 입력해야 합니다")
-
+    def clean_bybit_target_coins(self):
+        value = self.cleaned_data.get("bybit_target_coins", "") or ""
+        # 콤마로 구분된 문자열을 리스트로 변환 (빈 값 허용)
+        coins = [coin.strip().upper() for coin in value.split(",") if coin.strip()]
         return coins

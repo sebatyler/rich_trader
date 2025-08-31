@@ -115,14 +115,17 @@ def _format_telegram_message(symbol: str, tf5: dict, tf15: dict, decision: dict)
 
 
 def scan_bybit_signals():
-    symbols = ["BTCUSDT", "ETHUSDT"]
+    # Load all configs that enabled Bybit alerts and aggregate target symbols
+    configs = list(TradingConfig.objects.filter(bybit_alert_enabled=True))
+    symbols_set = set()
+    for cfg in configs:
+        coins = getattr(cfg, "bybit_target_coins", None) or []
+        for coin in coins:
+            symbols_set.add(coin)
+
     results = []
 
-    # Resolve chat_id: prefer specific email, fallback to superuser
-    config = TradingConfig.objects.filter(user__is_superuser=True).first()
-    chat_id = config.telegram_chat_id if config else None
-
-    for symbol in symbols:
+    for symbol in sorted(symbols_set):
         # fetch klines
         rows_5 = bybit.get_kline(symbol, interval="5", limit=200, category="linear")
         rows_15 = bybit.get_kline(symbol, interval="15", limit=200, category="linear")
@@ -222,17 +225,23 @@ def scan_bybit_signals():
             ),
         )
 
-        if (decision.get("buy_signal") or should_buy) and chat_id:
-            if decision.get("error"):
-                logging.exception(f"Bybit decision error for {symbol}: {decision['error']}")
-            else:
-                exp = decision.get("expected_profit_pct")
-                if decision.get("buy_signal") and isinstance(exp, (int, float)) and exp >= 0.1:
-                    text = _format_telegram_message(symbol, ind5, ind15, decision)
-                    try:
-                        send_message(text, chat_id=chat_id, is_markdown=False)
-                    except Exception:
-                        logging.exception(f"Failed to send Telegram message for {symbol}")
+        # Notify per-config: only when LLM says buy and expected_profit_pct >= 0.1
+        if decision.get("error"):
+            logging.exception(f"Bybit decision error for {symbol}: {decision['error']}")
+        else:
+            exp = decision.get("expected_profit_pct")
+            should_notify = bool(decision.get("buy_signal")) and isinstance(exp, (int, float)) and exp >= 0.1
+            if should_notify:
+                text = _format_telegram_message(symbol, ind5, ind15, decision)
+                for cfg in configs:
+                    # double-check enabled and membership
+                    if cfg.bybit_alert_enabled and symbol in (cfg.bybit_target_coins or []):
+                        chat_id = cfg.telegram_chat_id
+                        if chat_id:
+                            try:
+                                send_message(text, chat_id=chat_id, is_markdown=False)
+                            except Exception:
+                                logging.exception(f"Failed to send Telegram message for {symbol} to chat_id={chat_id}")
 
         results.append({"symbol": symbol, "should_buy": should_buy, "decision": decision})
 

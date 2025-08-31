@@ -18,8 +18,8 @@ from core.utils import format_quantity
 
 class TradingConfig(TimeStampedModel):
     user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-    coinone_access_key = models.CharField(max_length=255)
-    coinone_secret_key = models.CharField(max_length=255)
+    coinone_access_key = models.CharField(max_length=255, null=True, blank=True)
+    coinone_secret_key = models.CharField(max_length=255, null=True, blank=True)
     telegram_chat_id = models.CharField(max_length=255)
     is_active = models.BooleanField(
         verbose_name="자동 매매 활성화",
@@ -29,6 +29,8 @@ class TradingConfig(TimeStampedModel):
     target_coins = models.JSONField(
         help_text="List of target coins",
         default=list,
+        blank=True,
+        null=True,
     )
     min_trade_amount = models.PositiveIntegerField(
         verbose_name="최소 거래금액",
@@ -59,6 +61,18 @@ class TradingConfig(TimeStampedModel):
         verbose_name="최대 코인 개수",
         help_text="한 번에 추천할 최대 코인 개수",
         default=2,
+    )
+
+    # Bybit settings
+    bybit_alert_enabled = models.BooleanField(
+        default=False,
+        help_text="Bybit 신호 텔레그램 알림 허용 여부",
+    )
+    bybit_target_coins = models.JSONField(
+        help_text="Bybit에서 스캔할 심볼 목록 (예: ['BTCUSDT','ETHUSDT'])",
+        default=list,
+        blank=True,
+        null=True,
     )
 
     history = HistoricalRecords()
