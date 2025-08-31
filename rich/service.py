@@ -95,16 +95,23 @@ def _rule_based_buy_signal(ind_5m: dict, ind_15m: dict) -> bool:
 
 
 def _format_telegram_message(symbol: str, tf5: dict, tf15: dict, decision: dict) -> str:
+    entry = decision.get("entry_price")
+    sl = decision.get("stop_loss")
+    tp = decision.get("take_profit")
+    exp = decision.get("expected_profit_pct")
+    exp10 = decision.get("expected_profit_pct_with_10x")
+    conf = decision.get("confidence")
+    reason = decision.get("reason", "")
+
     lines = [
-        f"Bybit {symbol} Buy Signal",
-        f"5m close: {tf5['close']:.2f} | RSI: {tf5['rsi']:.1f} | MACD hist: {tf5['macd_hist']:.3f}",
-        f"15m RSI: {tf15['rsi']:.1f} | EMA20/50: {tf15['ema20']:.2f}/{tf15['ema50']:.2f}",
-        f"Entry: {decision.get('entry_price')} | SL: {decision.get('stop_loss')} | TP: {decision.get('take_profit')}",
-        f"Expected: {decision.get('expected_profit_pct')}% (10x: {decision.get('expected_profit_pct_with_10x')}%)",
-        f"Confidence: {decision.get('confidence')}",
-        decision.get("reason", ""),
+        f"[BUY] Bybit {symbol} 매수 신호",
+        f"진입 {entry} | 손절 {sl} | 익절 {tp} | 기대수익 {exp}% (10x {exp10}%)",
+        f"5m  종가 {tf5['close']:.2f} | RSI {tf5['rsi']:.1f} | MACD hist {tf5['macd_hist']:.3f}",
+        f"15m RSI {tf15['rsi']:.1f} | EMA20/50 {tf15['ema20']:.2f}/{tf15['ema50']:.2f}",
+        (f"신뢰도 {conf:.2f}" if isinstance(conf, (int, float)) else None),
+        (f"사유: {reason}" if reason else None),
     ]
-    return "\n".join([str(x) for x in lines if x is not None])
+    return "\n".join([str(x) for x in lines if x])
 
 
 def scan_bybit_signals():
@@ -213,12 +220,14 @@ def scan_bybit_signals():
         )
 
         if (decision.get("buy_signal") or should_buy) and chat_id:
-            text = _format_telegram_message(symbol, ind5, ind15, decision)
-            try:
-                send_message(text, chat_id=chat_id, is_markdown=False)
-            except Exception:
-                # fallback without markdown or extra options
-                send_message(text, chat_id=chat_id)
+            if decision.get("error"):
+                logging.exception(f"Bybit decision error for {symbol}: {decision['error']}")
+            else:
+                text = _format_telegram_message(symbol, ind5, ind15, decision)
+                try:
+                    send_message(text, chat_id=chat_id, is_markdown=False)
+                except Exception:
+                    logging.exception(f"Failed to send Telegram message for {symbol}")
 
         results.append({"symbol": symbol, "should_buy": should_buy, "decision": decision})
 
