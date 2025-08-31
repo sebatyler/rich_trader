@@ -115,16 +115,11 @@ def _format_telegram_message(symbol: str, tf5: dict, tf15: dict, decision: dict)
 
 
 def scan_bybit_signals():
-    now = timezone.now()
     symbols = ["BTCUSDT", "ETHUSDT"]
     results = []
 
     # Resolve chat_id: prefer specific email, fallback to superuser
-    target_user = User.objects.filter(email="sebatyler@gmail.com").first()
-    if target_user:
-        config = TradingConfig.objects.filter(user=target_user).first()
-    else:
-        config = TradingConfig.objects.filter(user__is_superuser=True).first()
+    config = TradingConfig.objects.filter(user__is_superuser=True).first()
     chat_id = config.telegram_chat_id if config else None
 
     for symbol in symbols:
