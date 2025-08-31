@@ -42,7 +42,7 @@ RUN --mount=type=secret,id=aws_access_key_id \
 COPY ./ ./
 
 # download files
-RUN bash download.sh && mv -v .env.${TARGET} .env && ls -l credentials/
+RUN bash download.sh && mv -v .env.${TARGET} .env
 
 # Collect static files
 RUN AWS_PROFILE=sebatyler DJANGO_SETTINGS_MODULE=rich_trader.settings.${TARGET} USE_DB_URL=0 \

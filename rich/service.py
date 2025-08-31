@@ -105,11 +105,11 @@ def _format_telegram_message(symbol: str, tf5: dict, tf15: dict, decision: dict)
 
     lines = [
         f"[BUY] Bybit {symbol} 매수 신호",
-        f"- 진입 {entry} | 손절 {sl} | 익절 {tp} | 기대수익 {exp}% (10x {exp10}%)",
-        f"- 5m  종가 {tf5['close']:.2f} | RSI {tf5['rsi']:.1f} | MACD hist {tf5['macd_hist']:.3f}",
+        f"- 신뢰도 {conf:.2f} | 기대수익 {exp}% (10x {exp10}%)",
+        f"- 진입 {entry} | 손절 {sl} | 익절 {tp}",
+        f"- 5m 종가 {tf5['close']:.2f} | RSI {tf5['rsi']:.1f} | MACD hist {tf5['macd_hist']:.3f}",
         f"- 15m RSI {tf15['rsi']:.1f} | EMA20/50 {tf15['ema20']:.2f}/{tf15['ema50']:.2f}",
-        (f"- 신뢰도 {conf:.2f}" if isinstance(conf, (int, float)) else None),
-        (f"-사유: {reason}" if reason else None),
+        (f"- 사유: {reason}" if reason else None),
     ]
     return "\n".join([str(x) for x in lines if x])
 

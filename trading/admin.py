@@ -8,11 +8,11 @@ from core.admin import ModelAdmin
 
 from .models import AlgorithmParameter
 from .models import AutoTrading
+from .models import BybitSignal
 from .models import Portfolio
 from .models import Trading
 from .models import TradingConfig
 from .models import UpbitTrading
-from .models import BybitSignal
 
 formfield_overrides = {
     models.JSONField: {"widget": JSONEditorWidget},
@@ -171,6 +171,7 @@ class BybitSignalAdmin(ModelAdmin):
         "close_price",
         "buy_signal",
         "confidence",
+        "expected_profit_pct",
         "entry_price",
         "stop_loss",
         "take_profit",
