@@ -155,16 +155,29 @@ def scan_bybit_signals():
             "rule_based_buy": should_buy,
         }
 
+        class BybitDecision(BaseModel):
+            buy_signal: bool
+            confidence: float | None = None
+            reason: str | None = None
+            entry_price: float | None = None
+            stop_loss: float | None = None
+            take_profit: float | None = None
+            expected_profit_pct: float | None = None
+            expected_profit_pct_with_10x: float | None = None
+
         system = (
             "You are a trading assistant. Given indicator values for Bybit USDT perpetual futures with cross 10x, "
-            "decide if a buy entry is reasonable now based ONLY on provided numbers. Output concise JSON with keys: "
-            "buy_signal(bool), confidence(0..1), reason, entry_price, stop_loss, take_profit, expected_profit_pct, expected_profit_pct_with_10x."
+            "decide if a buy entry is reasonable now based ONLY on provided numbers. Respond strictly in JSON matching the provided schema."
         )
         try:
             content = json.dumps(payload, ensure_ascii=False)
-            llm_text = invoke_llm(system, content, template_format="jinja2")
-            # try to parse JSON
-            decision = json.loads(llm_text) if llm_text.strip().startswith("{") else {"raw": llm_text}
+            decision_obj = invoke_llm(
+                system,
+                content,
+                model=BybitDecision,
+                structured_output=True,
+            )
+            decision = decision_obj.dict()
         except Exception as e:
             decision = {"error": str(e)}
 

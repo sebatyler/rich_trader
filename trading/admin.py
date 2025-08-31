@@ -12,6 +12,7 @@ from .models import Portfolio
 from .models import Trading
 from .models import TradingConfig
 from .models import UpbitTrading
+from .models import BybitSignal
 
 formfield_overrides = {
     models.JSONField: {"widget": JSONEditorWidget},
@@ -158,3 +159,23 @@ class AutoTradingAdmin(ModelAdmin):
     def _buy_pressure(self, obj):
         if obj.buy_pressure:
             return f"{obj.buy_pressure:.3f}"
+
+
+@admin.register(BybitSignal)
+class BybitSignalAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "symbol",
+        "timeframe",
+        "last_candle_time",
+        "close_price",
+        "buy_signal",
+        "confidence",
+        "entry_price",
+        "stop_loss",
+        "take_profit",
+        "created",
+    )
+    list_filter = ("symbol", "timeframe", "buy_signal")
+    search_fields = ("symbol",)
+    formfield_overrides = formfield_overrides
