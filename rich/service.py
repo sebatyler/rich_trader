@@ -26,10 +26,16 @@ from django.utils import timezone
 import core.coinone as coinone
 import core.trading_algorithm as ta
 from accounts.models import User
+from core import bybit
 from core import coinone
 from core import crypto
 from core import upbit
 from core.choices import ExchangeChoices
+from core.indicators import atr as calc_atr
+from core.indicators import ema as calc_ema
+from core.indicators import macd as calc_macd
+from core.indicators import rsi as calc_rsi
+from core.indicators import volume_ma as calc_volume_ma
 from core.llm import invoke_gemini_search
 from core.llm import invoke_llm
 from core.parameter_optimization import create_optimization_payload
@@ -39,19 +45,13 @@ from core.utils import dict_at
 from core.utils import dict_omit
 from core.utils import format_currency
 from core.utils import format_quantity
-from core.indicators import rsi as calc_rsi
-from core.indicators import macd as calc_macd
-from core.indicators import ema as calc_ema
-from core.indicators import volume_ma as calc_volume_ma
-from core.indicators import atr as calc_atr
-from core import bybit
 from trading.models import AlgorithmParameter
 from trading.models import AutoTrading
+from trading.models import BybitSignal
 from trading.models import Portfolio
 from trading.models import Trading
 from trading.models import TradingConfig
 from trading.models import UpbitTrading
-from trading.models import BybitSignal
 
 from .models import CryptoListing
 
@@ -162,7 +162,7 @@ def scan_bybit_signals():
         )
         try:
             content = json.dumps(payload, ensure_ascii=False)
-            llm_text = invoke_llm(system, content)
+            llm_text = invoke_llm(system, content, template_format="jinja2")
             # try to parse JSON
             decision = json.loads(llm_text) if llm_text.strip().startswith("{") else {"raw": llm_text}
         except Exception as e:

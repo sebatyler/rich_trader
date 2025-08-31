@@ -14,5 +14,6 @@
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
   "python.languageServer": "None",
-  "python.analysis.diagnosticMode": "workspace"
+  "python.analysis.diagnosticMode": "workspace",
+  "cursorpyright.analysis.diagnosticMode": "workspace"
 }

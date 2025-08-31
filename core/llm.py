@@ -46,12 +46,15 @@ llm_primary = chat_gemini_models[0].with_fallbacks(chat_gemini_models[1:])
 llm_fallback = chat_gemini_models[1]
 
 
-def invoke_llm(prompt, *args, model=None, with_fallback=False, structured_output=False, **kwargs):
+def invoke_llm(
+    prompt, *args, model=None, with_fallback=False, structured_output=False, template_format="f-string", **kwargs
+):
     chat_prompt = ChatPromptTemplate.from_messages(
         [
             SystemMessage(content=prompt),
             *[("human", arg) for arg in args],
-        ]
+        ],
+        template_format=template_format,
     )
     llm = llm_fallback if with_fallback else llm_primary
 
