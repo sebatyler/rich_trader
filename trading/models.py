@@ -268,12 +268,15 @@ class BybitSignal(TimeStampedModel):
     atr = models.FloatField(null=True, blank=True)
 
     # decision
-    buy_signal = models.BooleanField(default=False)
+    trade_signal = models.BooleanField(default=False)
+    side = models.CharField(max_length=10, null=True, blank=True, help_text="LONG or SHORT")
     confidence = models.FloatField(null=True, blank=True)
     entry_price = models.FloatField(null=True, blank=True)
     stop_loss = models.FloatField(null=True, blank=True)
     take_profit = models.FloatField(null=True, blank=True)
     expected_profit_pct = models.FloatField(null=True, blank=True)
+    recommended_leverage = models.PositiveSmallIntegerField(null=True, blank=True)
+    few_minutes_profitable = models.BooleanField(default=False)
 
     # raw llm json
     decision = models.JSONField(default=dict, blank=True)

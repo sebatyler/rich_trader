@@ -94,21 +94,42 @@ def _rule_based_buy_signal(ind_5m: dict, ind_15m: dict) -> bool:
     return cond_rsi and cond_macd and cond_trend and cond_vol and cond_15m_trend
 
 
-def _format_telegram_message(symbol: str, tf5: dict, tf15: dict, decision: dict) -> str:
+def _rule_based_scalp_long_signal(ind_3m: dict, ind_5m: dict, ind_15m: dict) -> bool:
+    cond_rsi = ind_3m["rsi"] > 45 and ind_5m["rsi"] >= 45
+    cond_macd = ind_3m["macd_hist"] > 0
+    cond_trend = ind_3m["close"] > ind_3m["ema20"] >= ind_3m["ema50"]
+    cond_vol = ind_3m["volume"] >= ind_3m["volume_ma20"]
+    cond_htf_trend = ind_5m["ema20"] >= ind_5m["ema50"] and ind_15m["ema20"] >= ind_15m["ema50"]
+    return cond_rsi and cond_macd and cond_trend and cond_vol and cond_htf_trend
+
+
+def _rule_based_scalp_short_signal(ind_3m: dict, ind_5m: dict, ind_15m: dict) -> bool:
+    cond_rsi = ind_3m["rsi"] < 55 and ind_5m["rsi"] <= 55
+    cond_macd = ind_3m["macd_hist"] < 0
+    cond_trend = ind_3m["close"] < ind_3m["ema20"] <= ind_3m["ema50"]
+    cond_vol = ind_3m["volume"] >= ind_3m["volume_ma20"]
+    cond_htf_trend = ind_5m["ema20"] <= ind_5m["ema50"] and ind_15m["ema20"] <= ind_15m["ema50"]
+    return cond_rsi and cond_macd and cond_trend and cond_vol and cond_htf_trend
+
+
+def _format_telegram_message(symbol: str, side: str, tf3: dict, tf5: dict, tf15: dict, decision: dict) -> str:
     entry = decision.get("entry_price")
     sl = decision.get("stop_loss")
     tp = decision.get("take_profit")
     exp = decision.get("expected_profit_pct")
-    exp10 = decision.get("expected_profit_pct_with_10x")
     conf = decision.get("confidence")
     reason = decision.get("reason", "")
+    lev = decision.get("recommended_leverage") or decision.get("leverage")
+    few = decision.get("few_minutes_profitable")
 
+    few_txt = "예상 수익 수 분 내 달성 가능" if few else "단기 달성 불확실"
     lines = [
-        f"[BUY] Bybit {symbol} 매수 신호",
-        f"- 신뢰도 {conf:.2f} | 기대수익 {exp}% (10x {exp10}%)",
+        f"[{side}] Bybit {symbol} 3m 스캘핑 신호",
+        f"- 레버리지 {lev}x | 신뢰도 {conf:.2f} | 기대수익 {exp}%",
+        f"- {few_txt}",
         f"- 진입 {entry} | 손절 {sl} | 익절 {tp}",
-        f"- 5m 종가 {tf5['close']:.2f} | RSI {tf5['rsi']:.1f} | MACD hist {tf5['macd_hist']:.3f}",
-        f"- 15m RSI {tf15['rsi']:.1f} | EMA20/50 {tf15['ema20']:.2f}/{tf15['ema50']:.2f}",
+        f"- 3m 종가 {tf3['close']:.4f} | RSI {tf3['rsi']:.1f} | MACD hist {tf3['macd_hist']:.3f}",
+        f"- 5m RSI {tf5['rsi']:.1f} | 15m RSI {tf15['rsi']:.1f}",
         (f"- 사유: {reason}" if reason else None),
     ]
     return "\n".join([str(x) for x in lines if x])
@@ -127,112 +148,118 @@ def scan_bybit_signals():
 
     for symbol in sorted(symbols_set):
         # fetch klines
+        rows_3 = bybit.get_kline(symbol, interval="3", limit=200, category="linear")
         rows_5 = bybit.get_kline(symbol, interval="5", limit=200, category="linear")
         rows_15 = bybit.get_kline(symbol, interval="15", limit=200, category="linear")
+        df3 = bybit.klines_to_dataframe(rows_3)
         df5 = bybit.klines_to_dataframe(rows_5)
         df15 = bybit.klines_to_dataframe(rows_15)
 
         # ensure closed candle only
+        df3 = bybit.drop_unclosed_candle(df3, interval_minutes=3)
         df5 = bybit.drop_unclosed_candle(df5, interval_minutes=5)
         df15 = bybit.drop_unclosed_candle(df15, interval_minutes=15)
-        if len(df5) < 50 or len(df15) < 50:
+        if len(df3) < 50 or len(df5) < 50 or len(df15) < 50:
             continue
 
+        ind3 = _compute_indicators(df3)
         ind5 = _compute_indicators(df5)
         ind15 = _compute_indicators(df15)
-        should_buy = _rule_based_buy_signal(ind5, ind15)
+        should_long = _rule_based_scalp_long_signal(ind3, ind5, ind15)
+        should_short = _rule_based_scalp_short_signal(ind3, ind5, ind15)
 
         # LLM decision
         payload = {
             "symbol": symbol,
-            "leverage": 10,
-            "timeframes": ["5m", "15m"],
+            "timeframes": ["3m", "5m", "15m"],
             "indicators": {
+                "rsi_3m": ind3["rsi"],
                 "rsi_5m": ind5["rsi"],
                 "rsi_15m": ind15["rsi"],
+                "macd_3m": {"macd": ind3["macd"], "signal": ind3["macd_signal"], "hist": ind3["macd_hist"]},
                 "macd_5m": {"macd": ind5["macd"], "signal": ind5["macd_signal"], "hist": ind5["macd_hist"]},
+                "ema_3m": {"ema20": ind3["ema20"], "ema50": ind3["ema50"]},
                 "ema_5m": {"ema20": ind5["ema20"], "ema50": ind5["ema50"]},
                 "ema_15m": {"ema20": ind15["ema20"], "ema50": ind15["ema50"]},
-                "vol_ma_5m": {"vol": ind5["volume"], "vol_ma20": ind5["volume_ma20"]},
-                "atr_5m": ind5["atr"],
+                "vol_ma_3m": {"vol": ind3["volume"], "vol_ma20": ind3["volume_ma20"]},
+                "atr_3m": ind3["atr"],
             },
-            "last_closed_candle": {"time": df5.iloc[-1]["time"].isoformat(), "close": ind5["close"]},
+            "last_closed_candle": {"time": df3.iloc[-1]["time"].isoformat(), "close": ind3["close"]},
             "fees": {"derivatives_taker": 0.00055, "derivatives_maker": 0.0002},
-            "rule_based_buy": should_buy,
+            "rule_based": {"long": should_long, "short": should_short},
         }
 
         class BybitDecision(BaseModel):
-            buy_signal: bool = Field(..., description="Whether to buy the coin")
-            confidence: float = Field(..., description="The confidence")
-            reason: str = Field(..., description="The reason")
+            trade_signal: bool = Field(..., description="Whether to enter a trade now")
+            side: str = Field(..., description="Trade direction: LONG or SHORT")
+            confidence: float = Field(..., description="The confidence 0-1")
+            reason: str = Field(..., description="The reason in Korean (<=2 sentences)")
             entry_price: float = Field(..., description="The entry price")
             stop_loss: float = Field(..., description="The stop loss")
-            take_profit: float = Field(..., description="The take profit")
-            expected_profit_pct: float = Field(..., description="The expected profit percentage")
-            expected_profit_pct_with_10x: float = Field(
-                ..., description="The expected profit percentage with 10x leverage"
-            )
+            take_profit: float = Field(..., description="The take profit reachable in minutes")
+            expected_profit_pct: float = Field(..., description="Net expected profit % at 1x, fees included")
+            recommended_leverage: int = Field(..., description="Leverage (e.g., 10/25/50)")
+            few_minutes_profitable: bool = Field(..., description="Likely to realize within next 1-3 3m candles")
 
         system = (
-            "You are a trading assistant for Bybit USDT perpetual futures (cross 10x). "
-            "Decide if a short-term BUY entry is reasonable now based ONLY on the provided indicators and last closed candles. "
-            "Optimize for day trading/scalping: prefer setups with near-term momentum (next 1-3 candles on 5m) and quick realizable profit. "
+            "You are a trading assistant for Bybit USDT perpetual futures (cross). "
+            "Decide if a SHORT-TERM SCALP entry is reasonable NOW for either LONG or SHORT based ONLY on the provided indicators and last closed candles. "
+            "Optimize for scalping: prefer setups with momentum realizable within the next 1-3 candles on 3m. "
             "Be conservative if signals are mixed or volume confirmation is weak. "
-            "Include derivatives trading fees in all profit expectations. Taker fee = 0.055% per leg, Maker fee = 0.020% per leg. "
-            "Assume TAKER entry and TAKER exit unless you explicitly decide otherwise for exit. "
-            "Compute expected_profit_pct exactly as: ((take_profit / entry_price) - 1 - entry_fee - exit_fee) * 100, where entry_fee and exit_fee are the per-leg fees you assumed (by default both = taker fee). "
-            "Set expected_profit_pct_with_10x = expected_profit_pct * 10 (the leverage). Do not add fees again when scaling with leverage. "
-            "If expected_profit_pct < 0.1, set buy_signal=false regardless of other signals and briefly explain why in Korean (<= 2 sentences). "
-            "Only set buy_signal=true when risk-reward >= 1.5 (net of fees) and the setup is likely realizable within the next 1-3 5m candles. "
+            "Include derivatives trading fees in all profit expectations. Taker fee = 0.055% per leg, Maker fee = 0.020% per leg. Assume TAKER in and out. "
+            "Compute expected_profit_pct exactly as: ((take_profit / entry_price) - 1 - entry_fee - exit_fee) * 100 for LONG and the analogous formula for SHORT using (entry_price / take_profit - 1). Entry/exit fees equal taker fee by default. "
+            "Pick recommended_leverage from {10,25,50} based on stop distance and volatility; smaller stops and stronger momentum allow higher leverage, else prefer lower. "
+            "If expected_profit_pct < 0.1, set trade_signal=false regardless of other signals and briefly explain why in Korean (<= 2 sentences). "
+            "Only set trade_signal=true when risk-reward >= 1.5 (net of fees) and the setup is likely realizable within the next 1-3 3m candles. "
             "Respond strictly in JSON matching the provided schema. The 'reason' must be written in Korean (<= 2 sentences)."
         )
-        try:
-            content = json.dumps(payload, ensure_ascii=False)
-            decision_obj = invoke_llm(
-                system,
-                content,
-                model=BybitDecision,
-                structured_output=True,
-                template_format="jinja2",
-            )
-            decision = decision_obj.model_dump()
-        except Exception as e:
-            decision = {"error": str(e)}
+        content = json.dumps(payload, ensure_ascii=False)
+        decision_obj = invoke_llm(
+            system,
+            content,
+            model=BybitDecision,
+            structured_output=True,
+            template_format="jinja2",
+        )
+        decision = decision_obj.model_dump()
 
-        # persist snapshot for 5m timeframe only
+        # persist snapshot for 3m timeframe (scalping)
         BybitSignal.objects.update_or_create(
             symbol=symbol,
-            timeframe="5m",
-            last_candle_time=df5.iloc[-1]["time"],
+            timeframe="3m",
+            last_candle_time=df3.iloc[-1]["time"],
             defaults=dict(
-                close_price=ind5["close"],
-                rsi=ind5["rsi"],
-                macd=ind5["macd"],
-                macd_signal=ind5["macd_signal"],
-                macd_hist=ind5["macd_hist"],
-                ema20=ind5["ema20"],
-                ema50=ind5["ema50"],
-                volume=ind5["volume"],
-                volume_ma20=ind5["volume_ma20"],
-                atr=ind5["atr"],
-                buy_signal=bool(decision.get("buy_signal", should_buy)),
+                close_price=ind3["close"],
+                rsi=ind3["rsi"],
+                macd=ind3["macd"],
+                macd_signal=ind3["macd_signal"],
+                macd_hist=ind3["macd_hist"],
+                ema20=ind3["ema20"],
+                ema50=ind3["ema50"],
+                volume=ind3["volume"],
+                volume_ma20=ind3["volume_ma20"],
+                atr=ind3["atr"],
+                trade_signal=bool(decision.get("trade_signal", False)),
+                side=decision.get("side"),
                 confidence=decision.get("confidence"),
                 entry_price=decision.get("entry_price"),
                 stop_loss=decision.get("stop_loss"),
                 take_profit=decision.get("take_profit"),
                 expected_profit_pct=decision.get("expected_profit_pct"),
+                recommended_leverage=decision.get("recommended_leverage"),
+                few_minutes_profitable=bool(decision.get("few_minutes_profitable")),
                 decision=decision,
             ),
         )
 
-        # Notify per-config: only when LLM says buy and expected_profit_pct >= 0.1
+        # Notify per-config: only when LLM says trade and expected_profit_pct >= 0.1
         if decision.get("error"):
             logging.exception(f"Bybit decision error for {symbol}: {decision['error']}")
         else:
             exp = decision.get("expected_profit_pct")
-            should_notify = bool(decision.get("buy_signal")) and isinstance(exp, (int, float)) and exp >= 0.1
+            should_notify = bool(decision.get("trade_signal")) and isinstance(exp, (int, float)) and exp >= 0.1
             if should_notify:
-                text = _format_telegram_message(symbol, ind5, ind15, decision)
+                text = _format_telegram_message(symbol, decision.get("side", "LONG"), ind3, ind5, ind15, decision)
                 for cfg in configs:
                     # double-check enabled and membership
                     if cfg.bybit_alert_enabled and symbol in (cfg.bybit_target_coins or []):
@@ -243,7 +270,14 @@ def scan_bybit_signals():
                             except Exception:
                                 logging.exception(f"Failed to send Telegram message for {symbol} to chat_id={chat_id}")
 
-        results.append({"symbol": symbol, "should_buy": should_buy, "decision": decision})
+        results.append(
+            {
+                "symbol": symbol,
+                "should_long": should_long,
+                "should_short": should_short,
+                "decision": decision,
+            }
+        )
 
     return results
 
