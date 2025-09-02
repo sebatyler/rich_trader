@@ -169,14 +169,17 @@ class BybitSignalAdmin(ModelAdmin):
         "timeframe",
         "last_candle_time",
         "close_price",
-        "buy_signal",
+        "trade_signal",
+        "side",
         "confidence",
         "expected_profit_pct",
+        "recommended_leverage",
+        "few_minutes_profitable",
         "entry_price",
         "stop_loss",
         "take_profit",
         "created",
     )
-    list_filter = ("symbol", "timeframe", "buy_signal")
+    list_filter = ("symbol", "timeframe", "trade_signal", "side", "few_minutes_profitable")
     search_fields = ("symbol",)
     formfield_overrides = formfield_overrides

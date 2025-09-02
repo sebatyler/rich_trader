@@ -268,7 +268,7 @@ class BybitSignal(TimeStampedModel):
     atr = models.FloatField(null=True, blank=True)
 
     # decision
-    buy_signal = models.BooleanField(default=False)
+    trade_signal = models.BooleanField(default=False)
     side = models.CharField(max_length=10, null=True, blank=True, help_text="LONG or SHORT")
     confidence = models.FloatField(null=True, blank=True)
     entry_price = models.FloatField(null=True, blank=True)

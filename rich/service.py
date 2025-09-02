@@ -5,7 +5,6 @@ import time
 from datetime import timedelta
 from decimal import Decimal
 from typing import Optional
-from typing import Literal
 
 import constance
 import pandas as pd
@@ -192,14 +191,14 @@ def scan_bybit_signals():
 
         class BybitDecision(BaseModel):
             trade_signal: bool = Field(..., description="Whether to enter a trade now")
-            side: Literal["LONG","SHORT"] = Field(..., description="Trade direction")
+            side: str = Field(..., description="Trade direction: LONG or SHORT")
             confidence: float = Field(..., description="The confidence 0-1")
             reason: str = Field(..., description="The reason in Korean (<=2 sentences)")
             entry_price: float = Field(..., description="The entry price")
             stop_loss: float = Field(..., description="The stop loss")
             take_profit: float = Field(..., description="The take profit reachable in minutes")
             expected_profit_pct: float = Field(..., description="Net expected profit % at 1x, fees included")
-            recommended_leverage: Literal[10,25,50] = Field(..., description="Pick 10,25,50 only")
+            recommended_leverage: int = Field(..., description="Leverage (e.g., 10/25/50)")
             few_minutes_profitable: bool = Field(..., description="Likely to realize within next 1-3 3m candles")
 
         system = (
@@ -214,63 +213,15 @@ def scan_bybit_signals():
             "Only set trade_signal=true when risk-reward >= 1.5 (net of fees) and the setup is likely realizable within the next 1-3 3m candles. "
             "Respond strictly in JSON matching the provided schema. The 'reason' must be written in Korean (<= 2 sentences)."
         )
-        try:
-            content = json.dumps(payload, ensure_ascii=False)
-            decision_obj = invoke_llm(
-                system,
-                content,
-                model=BybitDecision,
-                structured_output=True,
-                template_format="jinja2",
-            )
-            decision = decision_obj.model_dump()
-        except Exception as e:
-            # Fallback conservative rule-based decision
-            try:
-                close = ind3["close"]
-                atr = ind3["atr"]
-                # Choose side by signal
-                if should_long and not should_short:
-                    side = "LONG"
-                elif should_short and not should_long:
-                    side = "SHORT"
-                else:
-                    side = "LONG" if ind3["macd_hist"] >= 0 else "SHORT"
-                if side == "LONG":
-                    entry = close
-                    stop = max(close - 0.5 * atr, 0)
-                    take = close + 1.0 * atr
-                    rr = (take - entry) / (entry - stop) if (entry - stop) > 0 else 0
-                    expected = ((take / entry) - 1 - 0.00055 - 0.00055) * 100
-                else:
-                    entry = close
-                    stop = close + 0.5 * atr
-                    take = max(close - 1.0 * atr, 0)
-                    rr = (entry - take) / (stop - entry) if (stop - entry) > 0 else 0
-                    expected = ((entry / take) - 1 - 0.00055 - 0.00055) * 100 if take > 0 else -1
-                # leverage heuristic
-                stop_dist_pct = abs(entry - stop) / entry * 100 if entry > 0 else 100
-                if stop_dist_pct < 0.35:
-                    lev = 50
-                elif stop_dist_pct < 0.8:
-                    lev = 25
-                else:
-                    lev = 10
-                decision = {
-                    "trade_signal": rr >= 1.5 and expected >= 0.1,
-                    "side": side,
-                    "confidence": 0.55,
-                    "reason": "보수적 규칙 기반 백업 결정입니다.",
-                    "entry_price": float(entry),
-                    "stop_loss": float(stop),
-                    "take_profit": float(take),
-                    "expected_profit_pct": float(expected),
-                    "recommended_leverage": lev,
-                    "few_minutes_profitable": bool(ind3["macd_hist"] * (1 if side == "LONG" else -1) > 0 and ind3["volume"] >= ind3["volume_ma20"]),
-                    "error": str(e),
-                }
-            except Exception as ee:
-                decision = {"error": f"{e} | fallback_failed: {ee}"}
+        content = json.dumps(payload, ensure_ascii=False)
+        decision_obj = invoke_llm(
+            system,
+            content,
+            model=BybitDecision,
+            structured_output=True,
+            template_format="jinja2",
+        )
+        decision = decision_obj.model_dump()
 
         # persist snapshot for 3m timeframe (scalping)
         BybitSignal.objects.update_or_create(
@@ -288,7 +239,7 @@ def scan_bybit_signals():
                 volume=ind3["volume"],
                 volume_ma20=ind3["volume_ma20"],
                 atr=ind3["atr"],
-                buy_signal=bool(decision.get("trade_signal", False)),
+                trade_signal=bool(decision.get("trade_signal", False)),
                 side=decision.get("side"),
                 confidence=decision.get("confidence"),
                 entry_price=decision.get("entry_price"),
@@ -308,7 +259,7 @@ def scan_bybit_signals():
             exp = decision.get("expected_profit_pct")
             should_notify = bool(decision.get("trade_signal")) and isinstance(exp, (int, float)) and exp >= 0.1
             if should_notify:
-                text = _format_telegram_message(symbol, decision.get("side","LONG"), ind3, ind5, ind15, decision)
+                text = _format_telegram_message(symbol, decision.get("side", "LONG"), ind3, ind5, ind15, decision)
                 for cfg in configs:
                     # double-check enabled and membership
                     if cfg.bybit_alert_enabled and symbol in (cfg.bybit_target_coins or []):
@@ -319,12 +270,14 @@ def scan_bybit_signals():
                             except Exception:
                                 logging.exception(f"Failed to send Telegram message for {symbol} to chat_id={chat_id}")
 
-        results.append({
-            "symbol": symbol,
-            "should_long": should_long,
-            "should_short": should_short,
-            "decision": decision,
-        })
+        results.append(
+            {
+                "symbol": symbol,
+                "should_long": should_long,
+                "should_short": should_short,
+                "decision": decision,
+            }
+        )
 
     return results
 
