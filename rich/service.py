@@ -475,7 +475,7 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
 3) SELL constraints:
    - quantity must respect exchange increments (qty_unit) and min_qty~max_qty range
    - Consider partial selling if large holdings, to manage risk and slippage
-   - limit_price ~ 0.1~0.3% below current for execution
+   - Use MARKET orders for SELL; do not use limit orders; set limit_price: null
    - Only recommend SELL if downward trend or risk mitigation needed
    - Consider profit/loss from recent trades of the same coin
 
@@ -513,7 +513,7 @@ recommendations:
     symbol: "BTC"
     amount: 500000   # (int or null) for BUY only
     quantity: null   # (float or null) for SELL only
-    limit_price: null  # (int or null) for SELL only
+    limit_price: null  # (must be null for SELL; MARKET execution only)
     reason: "핵심적인 매매 사유 1-2줄로 작성"
 ```
 
