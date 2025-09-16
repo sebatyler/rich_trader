@@ -341,10 +341,18 @@ def collect_crypto_data(symbol: str, start_date: str, news_count: int = 10, from
     if settings.DEBUG:
         crypto_news_csv = ""
     else:
-        crypto_news = crypto.fetch_news(start_date, symbol, news_count)
-        df = pd.DataFrame(crypto_news)
-        df = df[["source", "title", "description", "publishedAt", "content"]]
-        df["source"] = df["source"].apply(lambda x: x["name"])
+        # Use API + Gemini gap backfill to improve freshness
+        crypto_news = crypto.fetch_news_with_gemini_gap(start_date, symbol, news_count)
+        df = pd.DataFrame(crypto_news) if crypto_news else pd.DataFrame(columns=["source", "title", "description", "publishedAt", "content"])
+        if not df.empty:
+            # Ensure consistent columns and source name normalization
+            if "source" in df.columns:
+                df["source"] = df["source"].apply(lambda x: (x or {}).get("name") if isinstance(x, dict) else x)
+            expected_cols = ["source", "title", "description", "publishedAt", "content"]
+            missing = [c for c in expected_cols if c not in df.columns]
+            for c in missing:
+                df[c] = None
+            df = df[expected_cols]
         crypto_news_csv = df.to_csv(index=False)
 
     return {
@@ -469,13 +477,14 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
 2) BUY constraints:
    - amount ≥ {trading_config.min_trade_amount}, multiple of {trading_config.step_amount}
    - Single BUY ≤ 30% of available KRW, total BUY ≤ 50% of KRW
+   - Execute BUY as MARKET orders only (no limit/post-only)
    - Only recommend BUY if strong upward momentum and positive news
    - Avoid buying coins that were recently sold at a loss
 
 3) SELL constraints:
    - quantity must respect exchange increments (qty_unit) and min_qty~max_qty range
    - Consider partial selling if large holdings, to manage risk and slippage
-   - limit_price ~ 0.1~0.3% below current for execution
+   - Execute SELL as MARKET orders only; set limit_price: null
    - Only recommend SELL if downward trend or risk mitigation needed
    - Consider profit/loss from recent trades of the same coin
 
@@ -513,7 +522,7 @@ recommendations:
     symbol: "BTC"
     amount: 500000   # (int or null) for BUY only
     quantity: null   # (float or null) for SELL only
-    limit_price: null  # (int or null) for SELL only
+    limit_price: null  # (must be null for SELL; MARKET execution only)
     reason: "핵심적인 매매 사유 1-2줄로 작성"
 ```
 
