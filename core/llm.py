@@ -1,5 +1,7 @@
 import logging
 import os
+import json
+import re
 
 from google import genai
 from google.genai.types import GenerateContentConfig
@@ -111,3 +113,39 @@ def invoke_gemini_search(prompt, system_instruction=None):
     parts = response.candidates[0].content.parts
     output = [each.text for each in parts]
     return output
+
+
+def invoke_gemini_search_json(prompt, system_instruction=None):
+    """Invoke Gemini with Google Search tool and return parsed JSON.
+
+    Expects the model to return a JSON object as plain text. If parsing fails,
+    attempts to extract the first JSON object from the text.
+    """
+    google_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    model_id = "gemini-2.0-flash-exp"
+
+    google_search_tool = Tool(google_search=GoogleSearch())
+    response = google_client.models.generate_content(
+        model=model_id,
+        contents=prompt,
+        config=GenerateContentConfig(
+            tools=[google_search_tool],
+            system_instruction=system_instruction,
+            response_modalities=["TEXT"],
+        ),
+    )
+
+    parts = response.candidates[0].content.parts
+    text = "".join(getattr(each, "text", "") for each in parts)
+
+    try:
+        return json.loads(text)
+    except Exception:
+        match = re.search(r"\{[\s\S]*\}", text)
+        if match:
+            try:
+                return json.loads(match.group(0))
+            except Exception:
+                logging.warning("invoke_gemini_search_json: JSON extraction failed")
+        logging.warning("invoke_gemini_search_json: returning raw text due to parse failure")
+        return {"raw": text}
