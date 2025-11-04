@@ -343,7 +343,11 @@ def collect_crypto_data(symbol: str, start_date: str, news_count: int = 10, from
     else:
         # Use API + Gemini gap backfill to improve freshness
         crypto_news = crypto.fetch_news_with_gemini_gap(start_date, symbol, news_count)
-        df = pd.DataFrame(crypto_news) if crypto_news else pd.DataFrame(columns=["source", "title", "description", "publishedAt", "content"])
+        df = (
+            pd.DataFrame(crypto_news)
+            if crypto_news
+            else pd.DataFrame(columns=["source", "title", "description", "publishedAt", "content"])
+        )
         if not df.empty:
             # Ensure consistent columns and source name normalization
             if "source" in df.columns:
@@ -1216,9 +1220,9 @@ def _buy_upbit_coins():
         last_candle = upbit.get_candles(coin, count=1)[0]
         last_price = Decimal(last_candle["trade_price"])
 
-        # 마지막 매수한지 1시간 이상 지났고 1% 이상 하락했을 때만 구매
+        # 마지막 매수한지 2시간 이상 지났고 2% 이상 하락했을 때만 구매
         price_change = (last_price - last_buy_price) / last_buy_price * 100
-        should_buy = price_change <= -1 and last_buy_at < timezone.now() - timedelta(hours=1)
+        should_buy = price_change <= -2 and last_buy_at < timezone.now() - timedelta(hours=2)
         logging.info(
             f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
         )
