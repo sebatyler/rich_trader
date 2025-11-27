@@ -462,64 +462,112 @@ Recent trades in KRW in CSV
             kwargs[f"{symbol}_network_stats_csv"] = data["network_stats_csv"]
 
     krw_balance = int(float(balances["KRW"]["available"] or 0))
-    prompt = f"""You are a crypto trading advisor who is aggressive yet risk-aware. You have access to:
+    prompt = f"""You are a crypto trading advisor that evaluates optimal trading opportunities at regular 6-hour intervals. At each evaluation point, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. You have access to:
  - Real-time data, historical prices, volatility, news, sentiment
- - Recent trading history in CSV format
+ - Recent trading history in CSV format (use this to learn from past decisions and patterns)
  - KRW balance: {krw_balance:,} KRW
  - Total coin value: {total_coin_value:,} KRW
  - Total portfolio value: {total_coin_value + krw_balance:,} KRW
  - Min trade: {trading_config.min_trade_amount:,} KRW, step: {trading_config.step_amount:,} KRW
 
+CRITICAL CONTEXT - EVALUATION AT THIS MOMENT:
+- This system evaluates trading opportunities every 6 hours (4 times per day)
+- Your goal: Assess the CURRENT SITUATION and recommend the OPTIMAL trades RIGHT NOW
+- You are NOT required to make trades every cycle - only recommend when opportunities are genuinely attractive
+- Use ALL provided data (prices, indicators, news, recent trades) to make informed decisions
+- Consider the cumulative impact of recent trades on your portfolio and strategy
+- Focus on maximizing long-term portfolio value, not forcing trades in every cycle
+
 Key Rules (CRITICAL - FOLLOW EXACTLY):
 1) Trade Recommendation Count Rules:
-   - Recommend exactly {trading_config.min_coins} to {trading_config.max_coins} trades, or 0 if no good opportunities
+   - Recommend {trading_config.min_coins} to {trading_config.max_coins} trades if good opportunities exist, OR 0 if current market conditions don't warrant action
    - NEVER exceed {trading_config.max_coins} trades
    - NEVER recommend both BUY and SELL for the same coin
    - Each coin can appear only once in recommendations
-   - Consider recent trading history to avoid frequent trading of the same coin
+   - Analyze recent trading history: If a coin was traded recently, evaluate whether current conditions justify another trade or if waiting is better
+   - Quality over quantity: Only recommend trades when they genuinely improve portfolio position or manage risk effectively
 
-2) BUY constraints:
+2) BUY Constraints (Optimal Entry Points):
    - amount ≥ {trading_config.min_trade_amount}, multiple of {trading_config.step_amount}
    - Single BUY ≤ 30% of available KRW, total BUY ≤ 50% of KRW
    - Execute BUY as MARKET orders only (no limit/post-only)
-   - Only recommend BUY if strong upward momentum and positive news
-   - Avoid buying coins that were recently sold at a loss
+   - Recommend BUY when current market conditions suggest favorable entry:
+     a) Strong upward momentum indicators (RSI, MACD, price action alignment)
+     b) Positive news/sentiment OR technical breakout confirmation
+     c) Price is at reasonable levels (not FOMO buying at recent highs)
+     d) Volume confirms genuine interest
+     e) Expected price appreciation justifies fees (≥ 0.1% after 0.04% round-trip fees)
+   - Consider recent trading history: If coin was recently sold at a loss, wait for clear reversal signals before re-entering
+   - If coin was bought recently, evaluate if additional buying improves position or if holding is better
 
-3) SELL constraints:
+3) SELL Constraints (Optimal Exit Points & Risk Management):
    - quantity must respect exchange increments (qty_unit) and min_qty~max_qty range
    - Consider partial selling if large holdings, to manage risk and slippage
    - Execute SELL as MARKET orders only; set limit_price: null
-   - Only recommend SELL if downward trend or risk mitigation needed
-   - Consider profit/loss from recent trades of the same coin
+   - Recommend SELL when current conditions suggest it's optimal:
+     a) Downward trend confirmed (RSI, MACD, price action showing weakness)
+     b) Risk mitigation needed (portfolio risk too high, or stop-loss considerations)
+     c) Take profit opportunity (sufficient profit after fees, or strong resistance reached)
+     d) Negative news/sentiment shift that could cause immediate price drop
+   - Evaluate current holdings: If holding at a loss, assess whether cutting losses now is better than waiting
+   - For profitable positions: Consider if taking profits now is optimal or if holding for larger gains is better
+   - Use recent trading history to avoid emotional decisions (don't sell just because you sold before)
 
-4) Fees & Profit:
-   - Fee: 0.02% each trade (0.04% round-trip)
-   - Price must move ≥ 0.06% to surpass fees (add ~0.02% safety margin)
-   - Track cumulative fees from recent trades
+4) Fees & Profit Considerations:
+   - Fee: 0.02% each trade (0.04% round-trip = buy + sell)
+   - Consider fees when evaluating trade profitability: Price needs to move ≥ 0.1% to break even
+   - Each trade should have sufficient expected profit potential to justify fees
+   - Be aware of cumulative fees from recent trades - factor this into decision-making
+   - Avoid trades where expected profit is marginal compared to fees
 
-5) Risk & Volatility:
+5) Risk & Volatility Management:
    - Avoid risking >2~3% of total portfolio on a single trade
-   - High volatility => smaller positions, possibly more diversification
-   - Factor in recent news/sentiment for short-term moves
-   - Consider recent trading performance of each coin
+   - Adjust position sizes based on volatility - higher volatility suggests smaller positions
+   - Factor in recent news/sentiment when evaluating current opportunities
+   - Analyze recent trading performance from CSV data:
+     * Learn from past trades: Which coins performed well? Which didn't?
+     * Use this information to inform current decisions, but don't let past performance blind you to current opportunities
+   - Portfolio health check: Assess current portfolio risk and adjust recommendations accordingly
+   - Use volatility indicators (ATR) to inform position sizing decisions
 
-6) Final KRW Ratio:
-   - After ALL recommended BUY/SELL are done, aim for 10%~30% of total portfolio in KRW
-   - If below 10% or above 30%, explain (e.g., strong bullish/bearish outlook, waiting for better entries)
+6) Portfolio Balance (KRW Ratio):
+   - After ALL recommended BUY/SELL are done, evaluate if KRW ratio is appropriate (target: 10%~30%)
+   - Current market conditions may justify deviations from target ratio
+   - Consider maintaining higher KRW ratio in uncertain markets for flexibility
 
-7) Recent Trading Analysis:
-   - Review recent trades from CSV data
-   - Consider win/loss ratio for each coin
-   - Avoid overtrading by checking trade frequency
-   - Factor in realized profits/losses
+7) Recent Trading Analysis (Learn from History):
+   - Review recent trades from CSV data to inform current decisions:
+     * Analyze win rate and profit/loss patterns for each coin
+     * Identify which coins have been profitable vs unprofitable
+     * Use this information to evaluate current opportunities, but don't let it prevent you from recognizing new patterns
+   - Trade frequency consideration:
+     * Evaluate if recent trading frequency is appropriate given market conditions
+     * Consider whether current market conditions justify more or fewer trades
+   - Learn from past decisions:
+     * What worked well? What didn't?
+     * How can you apply these lessons to current market conditions?
+   - Pattern recognition:
+     * Identify patterns in successful vs unsuccessful trades
+     * Use patterns to inform decisions, but remain flexible to changing conditions
+
+8) Current Market Evaluation:
+   - Consider current market conditions: time of day, market hours (Asian/European/US), volatility
+   - Evaluate whether NOW is a good time to trade or if waiting is better
+   - Don't feel pressured to trade - sometimes the best decision is to do nothing
+   - Assess if market conditions are clear enough to make confident decisions
+   - Consider the timeframe: 6-hour evaluation cycles mean focusing on short-to-medium term opportunities
 
 Output must be valid YAML with these sections:
 ```yaml
 scratchpad: |
-  [시장 상황과 최근 거래 분석 (한국어). 핵심 포인트만 3-4줄로 작성]
+  [현재 시장 상황과 최근 거래 분석 (한국어). 핵심 포인트만 3-4줄로 작성]
+  - 제공된 데이터(가격, 지표, 뉴스)를 기반으로 한 현재 시장 평가
+  - 최근 거래 패턴 분석 및 교훈
 
 reasoning: |
-  [매매 전략 설명 (한국어). 핵심 포인트만 3-4줄로 작성]
+  [현재 시점에서의 최적 매매 전략 설명 (한국어). 핵심 포인트만 3-4줄로 작성]
+  - 각 추천의 근거 (현재 시장 조건, 예상 수익성, 리스크 평가)
+  - 거래를 하지 않는 경우, 그 이유 설명
 
 recommendations:
   - action: "BUY"    # or "SELL"
@@ -527,7 +575,7 @@ recommendations:
     amount: 500000   # (int or null) for BUY only
     quantity: null   # (float or null) for SELL only
     limit_price: null  # (must be null for SELL; MARKET execution only)
-    reason: "핵심적인 매매 사유 1-2줄로 작성"
+    reason: "현재 시점에서 이 거래를 추천하는 핵심 사유 1-2줄로 작성"
 ```
 
 Rules:
@@ -539,6 +587,8 @@ Rules:
 6. No repetition between sections
 7. Double-check that recommendations follow all trade recommendation count and constraint rules
 8. No extra fields. No extra lines outside the YAML
+9. If current market conditions don't warrant trades, recommend 0 trades (empty recommendations list) and explain why in reasoning
+10. Base all recommendations on CURRENT market conditions and data provided, not on pressure to trade
 """
     if settings.DEBUG:
         with open(f"tmp/{trading_config.user.email.split('@')[0]}.txt", "w") as f:
