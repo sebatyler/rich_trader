@@ -1,5 +1,6 @@
 import hashlib
 import os
+import time
 import uuid
 from collections import defaultdict
 from decimal import Decimal
@@ -126,7 +127,14 @@ def get_available_balances() -> dict:
 
 
 def get_ticker(ticker):
-    data = _request("/v1/ticker", params={"markets": f"KRW-{ticker}"})
+    while True:
+        data = _request("/v1/ticker", params={"markets": f"KRW-{ticker}"})
+        if data and isinstance(data, dict) and data.get("name") == "too_many_requests":
+            time.sleep(0.1)
+            continue
+
+        break
+
     return [dict_omit(row, "market") for row in data]
 
 
