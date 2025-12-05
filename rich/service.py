@@ -1261,21 +1261,35 @@ def _buy_upbit_coins():
             ),
             None,
         )
+
         if not last_trading:
-            continue
+            # last_trading이 없으면 balances에서 수익률 확인
+            coin_balance = next((b for b in balances if b.get("symbol") == coin), None)
+            if not coin_balance or not coin_balance.get("avg_buy_price"):
+                continue
 
-        last_buy_price = last_trading.average_price
-        last_buy_at = last_trading.created
+            avg_buy_price = Decimal(str(coin_balance["avg_buy_price"]))
+            current_price = Decimal(str(coin_balance["current_price"]))
 
-        last_candle = upbit.get_candles(coin, count=1)[0]
-        last_price = Decimal(last_candle["trade_price"])
+            # 2% 이상 하락했는지 확인
+            price_change = (current_price - avg_buy_price) / avg_buy_price * 100
+            should_buy = price_change <= -2
+            logging.info(
+                f"{coin}: {should_buy=} {format_quantity(current_price)} <- {format_quantity(avg_buy_price)} ({price_change:.2f}%) [no trading history]"
+            )
+        else:
+            last_buy_price = last_trading.average_price
+            last_buy_at = last_trading.created
 
-        # 마지막 매수한지 2시간 이상 지났고 2% 이상 하락했을 때만 구매
-        price_change = (last_price - last_buy_price) / last_buy_price * 100
-        should_buy = price_change <= -2 and last_buy_at < timezone.now() - timedelta(hours=2)
-        logging.info(
-            f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
-        )
+            last_candle = upbit.get_candles(coin, count=1)[0]
+            last_price = Decimal(last_candle["trade_price"])
+
+            # 마지막 매수한지 2시간 이상 지났고 2% 이상 하락했을 때만 구매
+            price_change = (last_price - last_buy_price) / last_buy_price * 100
+            should_buy = price_change <= -2 and last_buy_at < timezone.now() - timedelta(hours=2)
+            logging.info(
+                f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
+            )
 
         if should_buy:
             res = upbit.buy_coin(coin, amount)
