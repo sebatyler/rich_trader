@@ -1,6 +1,6 @@
+import json
 import logging
 import os
-import json
 import re
 
 from google import genai
@@ -24,12 +24,16 @@ chat_anthropic = ChatAnthropic(
 
 # https://ai.google.dev/gemini-api/docs/models
 # https://ai.google.dev/gemini-api/docs/rate-limits
-gemini_models = [
+gemini_search_models = [
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
 ]
+gemini_models = [
+    "gemini-3-flash-preview",
+    "gemini-2.5-pro",
+] + gemini_search_models
 
 chat_gemini_models = [
     ChatGoogleGenerativeAI(
@@ -97,7 +101,7 @@ def invoke_llm_thinking_mode(prompt, *args, **kwargs):
 
 def invoke_gemini_search(prompt, system_instruction=None):
     google_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    model_id = "gemini-2.0-flash-exp"
+    model_id = gemini_search_models[0]
 
     google_search_tool = Tool(google_search=GoogleSearch())
     response = google_client.models.generate_content(
@@ -121,22 +125,7 @@ def invoke_gemini_search_json(prompt, system_instruction=None):
     Expects the model to return a JSON object as plain text. If parsing fails,
     attempts to extract the first JSON object from the text.
     """
-    google_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-    model_id = "gemini-2.0-flash-exp"
-
-    google_search_tool = Tool(google_search=GoogleSearch())
-    response = google_client.models.generate_content(
-        model=model_id,
-        contents=prompt,
-        config=GenerateContentConfig(
-            tools=[google_search_tool],
-            system_instruction=system_instruction,
-            response_modalities=["TEXT"],
-        ),
-    )
-
-    parts = response.candidates[0].content.parts
-    text = "".join(getattr(each, "text", "") for each in parts)
+    text = "".join(invoke_gemini_search(prompt, system_instruction))
 
     try:
         return json.loads(text)
