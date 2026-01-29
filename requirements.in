@@ -30,11 +30,12 @@ prettytable==3.10.0
 
 langchain==0.3.13
 langchain-anthropic==0.3.1
+langchain-deepseek
 langchain-google-genai==2.0.7
 google-genai==0.3.0
 
 nasdaq-data-link==1.0.4
-yfinance==0.2.38
+yfinance==1.1.0
 
 pyjwt==2.10.1
 

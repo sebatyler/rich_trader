@@ -11,6 +11,7 @@ from langchain.output_parsers import YamlOutputParser
 from langchain.prompts import ChatPromptTemplate
 from langchain.schema import SystemMessage
 from langchain_anthropic import ChatAnthropic
+from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # Initialize the LLM
@@ -35,6 +36,14 @@ gemini_models = [
     "gemini-2.5-pro",
 ] + gemini_search_models
 
+chat_deepseek = ChatDeepSeek(
+    model="deepseek-chat",
+    temperature=0,
+    max_tokens=None,
+    timeout=90,
+    max_retries=0,
+)
+
 chat_gemini_models = [
     ChatGoogleGenerativeAI(
         temperature=0.7,
@@ -48,7 +57,7 @@ chat_gemini_models = [
     for model in gemini_models
 ]
 
-llm_primary = chat_gemini_models[0].with_fallbacks(chat_gemini_models[1:])
+llm_primary = chat_deepseek.with_fallbacks(chat_gemini_models)
 llm_fallback = chat_gemini_models[1]
 
 
