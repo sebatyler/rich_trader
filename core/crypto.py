@@ -1,13 +1,18 @@
 import os
+from datetime import datetime
+from datetime import timedelta
+from datetime import timezone
+from urllib.parse import parse_qsl
+from urllib.parse import urlencode
+from urllib.parse import urlparse
+from urllib.parse import urlunparse
 
 import requests
-from datetime import datetime, timedelta, timezone
-from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
-
-from core.llm import invoke_gemini_search_json
 import yfinance as yf
 
 from django.conf import settings
+
+from core.llm import invoke_gemini_search_json
 
 
 def fetch_coinmarketcap_data(path, params=None):
@@ -109,8 +114,9 @@ def _to_newsapi_article(item: dict) -> dict:
     }
 
 
-def fetch_news_with_gemini_gap(from_date: str, symbol: str, page_size: int = 10, gap_threshold_minutes: int = 15,
-                               max_window_hours: int = 12) -> list[dict]:
+def fetch_news_with_gemini_gap(
+    from_date: str, symbol: str, page_size: int = 10, gap_threshold_minutes: int = 15, max_window_hours: int = 12
+) -> list[dict]:
     """Fetch news via API and backfill the freshness gap using Gemini web search between latest API ts and now.
 
     Returns a list of articles matching NewsAPI schema.
@@ -168,8 +174,27 @@ def fetch_news_with_gemini_gap(from_date: str, symbol: str, page_size: int = 10,
         }
         target_aliases = aliases.get(symbol.upper(), [symbol])
         keywords = [
-            "상장", "상장폐지", "입출금 중단", "해킹", "취약점", "ETF", "규제", "재판", "메인넷 업그레이드", "토큰 언락",
-            "listing", "delisting", "outage", "halt", "exploit", "hack", "ETF", "SEC", "lawsuit", "mainnet upgrade", "token unlock",
+            "상장",
+            "상장폐지",
+            "입출금 중단",
+            "해킹",
+            "취약점",
+            "ETF",
+            "규제",
+            "재판",
+            "메인넷 업그레이드",
+            "토큰 언락",
+            "listing",
+            "delisting",
+            "outage",
+            "halt",
+            "exploit",
+            "hack",
+            "ETF",
+            "SEC",
+            "lawsuit",
+            "mainnet upgrade",
+            "token unlock",
         ]
 
         system_instruction = [
@@ -200,7 +225,7 @@ def fetch_news_with_gemini_gap(from_date: str, symbol: str, page_size: int = 10,
     # Merge & deduplicate
     seen = set()
     merged = []
-    for item in (api_articles + gemini_items):
+    for item in api_articles + gemini_items:
         url = _normalize_url(item.get("url", ""))
         title_key = (item.get("title") or "").strip().lower()
         key = (url, title_key)
@@ -213,7 +238,9 @@ def fetch_news_with_gemini_gap(from_date: str, symbol: str, page_size: int = 10,
     def _sort_key(a):
         ts = a.get("publishedAt")
         try:
-            return datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else datetime(1970, 1, 1, tzinfo=timezone.utc)
+            return (
+                datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else datetime(1970, 1, 1, tzinfo=timezone.utc)
+            )
         except Exception:
             return datetime(1970, 1, 1, tzinfo=timezone.utc)
 

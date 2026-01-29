@@ -288,3 +288,7 @@ zappa_settings.json
 credentials/
 
 tmp/
+
+# claude and oh-my-claudecode
+.claude
+.omc
