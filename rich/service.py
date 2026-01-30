@@ -176,15 +176,26 @@ def scan_bybit_signals():
                 "rsi_3m": ind3["rsi"],
                 "rsi_5m": ind5["rsi"],
                 "rsi_15m": ind15["rsi"],
-                "macd_3m": {"macd": ind3["macd"], "signal": ind3["macd_signal"], "hist": ind3["macd_hist"]},
-                "macd_5m": {"macd": ind5["macd"], "signal": ind5["macd_signal"], "hist": ind5["macd_hist"]},
+                "macd_3m": {
+                    "macd": ind3["macd"],
+                    "signal": ind3["macd_signal"],
+                    "hist": ind3["macd_hist"],
+                },
+                "macd_5m": {
+                    "macd": ind5["macd"],
+                    "signal": ind5["macd_signal"],
+                    "hist": ind5["macd_hist"],
+                },
                 "ema_3m": {"ema20": ind3["ema20"], "ema50": ind3["ema50"]},
                 "ema_5m": {"ema20": ind5["ema20"], "ema50": ind5["ema50"]},
                 "ema_15m": {"ema20": ind15["ema20"], "ema50": ind15["ema50"]},
                 "vol_ma_3m": {"vol": ind3["volume"], "vol_ma20": ind3["volume_ma20"]},
                 "atr_3m": ind3["atr"],
             },
-            "last_closed_candle": {"time": df3.iloc[-1]["time"].isoformat(), "close": ind3["close"]},
+            "last_closed_candle": {
+                "time": df3.iloc[-1]["time"].isoformat(),
+                "close": ind3["close"],
+            },
             "fees": {"derivatives_taker": 0.00055, "derivatives_maker": 0.0002},
             "rule_based": {"long": should_long, "short": should_short},
         }
@@ -462,7 +473,7 @@ Recent trades in KRW in CSV
             kwargs[f"{symbol}_network_stats_csv"] = data["network_stats_csv"]
 
     krw_balance = int(float(balances["KRW"]["available"] or 0))
-    prompt = f"""You are a crypto trading advisor that evaluates optimal trading opportunities at regular 6-hour intervals. At each evaluation point, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. You have access to:
+    prompt = f"""You are a crypto trading advisor that evaluates optimal trading opportunities at regular 4-hour intervals. At each evaluation point, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. You have access to:
  - Real-time data, historical prices, volatility, news, sentiment
  - Recent trading history in CSV format (use this to learn from past decisions and patterns)
  - KRW balance: {krw_balance:,} KRW
@@ -471,7 +482,7 @@ Recent trades in KRW in CSV
  - Min trade: {trading_config.min_trade_amount:,} KRW, step: {trading_config.step_amount:,} KRW
 
 CRITICAL CONTEXT - EVALUATION AT THIS MOMENT:
-- This system evaluates trading opportunities every 6 hours (4 times per day)
+- This system evaluates trading opportunities every 4 hours (6 times per day)
 - Your goal: Assess the CURRENT SITUATION and recommend the OPTIMAL trades RIGHT NOW
 - You are NOT required to make trades every cycle - only recommend when opportunities are genuinely attractive
 - Use ALL provided data (prices, indicators, news, recent trades) to make informed decisions
@@ -596,11 +607,20 @@ Rules:
             f.write(all_data)
             f.write(json.dumps(kwargs))
 
-    return invoke_llm(prompt, all_data, model=MultiCryptoRecommendation, with_fallback=with_fallback, **kwargs)
+    return invoke_llm(
+        prompt,
+        all_data,
+        model=MultiCryptoRecommendation,
+        with_fallback=with_fallback,
+        **kwargs,
+    )
 
 
 def get_rebalance_recommendation(
-    crypto_data_list: list[dict], indices_csv: str, balances: dict[str, dict], total_coin_value: int
+    crypto_data_list: list[dict],
+    indices_csv: str,
+    balances: dict[str, dict],
+    total_coin_value: int,
 ):
     """LLM을 사용하여 암호화폐 투자 추천을 받습니다."""
     # 각 코인별 데이터를 하나의 문자열로 조합
@@ -1393,7 +1413,10 @@ class AutoTradingRunner:
             self.finish()
 
     def _main_logic(self):
-        coinone.init(access_key=self.config.coinone_access_key, secret_key=self.config.coinone_secret_key)
+        coinone.init(
+            access_key=self.config.coinone_access_key,
+            secret_key=self.config.coinone_secret_key,
+        )
         markets = coinone.get_markets()
         btc_market = markets.get("BTC", {})
         ticker = coinone.get_ticker("BTC")
@@ -1416,7 +1439,9 @@ class AutoTradingRunner:
         rsi_values = ta.calculate_rsi(prices, period=algo_param.rsi_period)
         latest_rsi = rsi_values[-1]
         middle, upper, lower = ta.calculate_bollinger_bands(
-            prices, period=algo_param.bollinger_period, num_std=float(algo_param.bollinger_std)
+            prices,
+            period=algo_param.bollinger_period,
+            num_std=float(algo_param.bollinger_std),
         )
         bids = orderbook.get("bids", [])
         asks = orderbook.get("asks", [])

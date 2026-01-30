@@ -292,3 +292,6 @@ tmp/
 # claude and oh-my-claudecode
 .claude
 .omc
+
+# oh-my-opencode
+.sisyphus
