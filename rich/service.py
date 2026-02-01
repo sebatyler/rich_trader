@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import time
 from datetime import timedelta
@@ -54,6 +55,97 @@ from trading.models import TradingConfig
 from trading.models import UpbitTrading
 
 from .models import CryptoListing
+
+
+def _safe_filename_slug(text: str, max_len: int = 80) -> str:
+    text = (text or "").strip()
+    text = re.sub(r"[^a-zA-Z0-9._-]+", "_", text)
+    text = text.strip("_")
+    return text[:max_len] or "unknown"
+
+
+def _dump_llm_inputs(
+    *,
+    name: str,
+    prompt: str,
+    human_message_template: str,
+    template_kwargs: dict,
+    user_slug: str,
+    template_format: str = "f-string",
+    out_dir: str = "tmp/llm_dumps",
+) -> dict:
+    """Dump LLM prompt + inputs to local files for inspection.
+
+    Writes multiple files to avoid a single massive JSON.
+    Returns a dict with created file paths.
+    """
+    os.makedirs(out_dir, exist_ok=True)
+
+    ts = timezone.now().strftime("%Y%m%dT%H%M%S")
+    base = os.path.join(out_dir, f"{ts}_{_safe_filename_slug(name)}_{_safe_filename_slug(user_slug)}")
+
+    # Render what the LLM will see (best-effort).
+    rendered = None
+    render_error = None
+    if template_format == "f-string":
+        try:
+            rendered = human_message_template.format(**template_kwargs)
+        except Exception as e:
+            render_error = f"render_failed: {type(e).__name__}: {e}"
+
+    # Compute rough size stats to help decide what to trim.
+    def _byte_len(x) -> int:
+        try:
+            return len((x or "").encode("utf-8"))
+        except Exception:
+            return 0
+
+    kw_sizes = []
+    for k, v in (template_kwargs or {}).items():
+        if isinstance(v, (str, bytes)):
+            kw_sizes.append((k, _byte_len(v if isinstance(v, str) else v.decode("utf-8", "ignore"))))
+        else:
+            kw_sizes.append((k, _byte_len(json.dumps(v, ensure_ascii=False, default=str))))
+    kw_sizes.sort(key=lambda x: x[1], reverse=True)
+
+    meta = {
+        "name": name,
+        "timestamp": timezone.now().isoformat(),
+        "template_format": template_format,
+        "prompt_bytes": _byte_len(prompt),
+        "human_template_bytes": _byte_len(human_message_template),
+        "human_rendered_bytes": _byte_len(rendered) if rendered is not None else None,
+        "render_error": render_error,
+        "template_kwargs_keys": list((template_kwargs or {}).keys()),
+        "template_kwargs_top10_by_bytes": kw_sizes[:10],
+    }
+
+    paths = {
+        "base": base,
+        "system_prompt": base + ".system.txt",
+        "human_template": base + ".human.template.txt",
+        "human_rendered": base + ".human.rendered.txt",
+        "template_kwargs": base + ".kwargs.json",
+        "meta": base + ".meta.json",
+    }
+
+    with open(paths["system_prompt"], "w", encoding="utf-8") as f:
+        f.write(prompt)
+
+    with open(paths["human_template"], "w", encoding="utf-8") as f:
+        f.write(human_message_template)
+
+    if rendered is not None:
+        with open(paths["human_rendered"], "w", encoding="utf-8") as f:
+            f.write(rendered)
+
+    with open(paths["template_kwargs"], "w", encoding="utf-8") as f:
+        json.dump(template_kwargs, f, ensure_ascii=False, indent=2, default=str)
+
+    with open(paths["meta"], "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+    return paths
 
 
 def _compute_indicators(df: pd.DataFrame, price_col: str = "close"):
@@ -600,12 +692,26 @@ Rules:
 8. No extra fields. No extra lines outside the YAML
 9. If current market conditions don't warrant trades, recommend 0 trades (empty recommendations list) and explain why in reasoning
 10. Base all recommendations on CURRENT market conditions and data provided, not on pressure to trade
-"""
+    """
     if settings.DEBUG:
-        with open(f"tmp/{trading_config.user.email.split('@')[0]}.txt", "w") as f:
-            f.write(prompt)
-            f.write(all_data)
-            f.write(json.dumps(kwargs))
+        # Dump-only mode for local inspection (superuser only).
+        if trading_config.user.is_superuser:
+            user_slug = (trading_config.user.email or "superuser").split("@")[0]
+            _dump_llm_inputs(
+                name="coinone-auto-trading-4h",
+                prompt=prompt,
+                human_message_template=all_data,
+                template_kwargs=kwargs,
+                user_slug=user_slug,
+                template_format="f-string",
+            )
+
+        # Do NOT invoke the LLM in DEBUG.
+        return MultiCryptoRecommendation(
+            scratchpad="DEBUG dump only",
+            reasoning="DEBUG mode: saved prompt and inputs to tmp/llm_dumps; no LLM call and no trades.",
+            recommendations=[],
+        )
 
     return invoke_llm(
         prompt,
@@ -765,12 +871,18 @@ Provide a clear and concise analysis in Korean (maximum 4000 characters). Format
 - 비상 상황 대응
 
 Use simple text format without special characters. Focus on clear numerical values and specific recommendations. Double-check all calculations for accuracy.
-"""
+    """
     if settings.DEBUG:
-        with open(f"tmp/rebalance.txt", "w") as f:
-            f.write(prompt)
-            f.write(all_data)
-            f.write(json.dumps(kwargs))
+        _dump_llm_inputs(
+            name="rebalance",
+            prompt=prompt,
+            human_message_template=all_data,
+            template_kwargs=kwargs,
+            user_slug="rebalance",
+            template_format="f-string",
+        )
+
+        return "DEBUG dump only"
 
     return invoke_llm(prompt, all_data, with_anthropic=True, **kwargs)
 
@@ -904,6 +1016,10 @@ def auto_trading():
 
     # 활성화된 트레이딩 설정에서 모든 target_coins를 가져와서 중복 제거
     active_configs = TradingConfig.objects.filter(is_active=True)
+    if settings.DEBUG:
+        # DEBUG: run dump-only for superuser only.
+        active_configs = active_configs.filter(user__is_superuser=True)
+
     target_coins = set()
     for config in active_configs:
         target_coins.update(config.target_coins)
@@ -969,6 +1085,10 @@ def auto_trading():
         if not result and exc:
             logging.exception(f"Error getting multi recommendation for {config.user}: {exc}")
             continue
+
+        # DEBUG: dump-only mode (LLM not invoked; do not send telegram; do not trade)
+        if settings.DEBUG:
+            return
 
         # 분석 결과 전송
         send_message(
