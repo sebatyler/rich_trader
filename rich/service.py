@@ -148,6 +148,132 @@ def _dump_llm_inputs(
     return paths
 
 
+def _interval_to_seconds(interval: str) -> int:
+    m = re.match(r"^(\d+)([mhd])$", (interval or "").strip().lower())
+    if not m:
+        raise ValueError(f"Unsupported interval: {interval}")
+    n = int(m.group(1))
+    unit = m.group(2)
+    if unit == "m":
+        return n * 60
+    if unit == "h":
+        return n * 60 * 60
+    if unit == "d":
+        return n * 24 * 60 * 60
+    raise ValueError(f"Unsupported interval unit: {unit}")
+
+
+def _coinone_chart_to_dataframe(chart: list[dict]) -> pd.DataFrame:
+    df = pd.DataFrame(chart or [])
+    if df.empty:
+        return df
+
+    # Coinone chart often returns newest-first; normalize to oldest-first.
+    ts_col = None
+    for c in ("timestamp", "time"):
+        if c in df.columns:
+            ts_col = c
+            break
+
+    if ts_col:
+        ts = pd.to_numeric(df[ts_col], errors="coerce")
+        # Heuristic: ms vs sec.
+        unit = "ms" if ts.dropna().median() > 1e12 else "s"
+        df["time"] = pd.to_datetime(ts, unit=unit, utc=True, errors="coerce")
+
+    for c in (
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "target_volume",
+        "quote_volume",
+    ):
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    if "close" in df.columns:
+        df = df.dropna(subset=["close"])
+
+    if "time" in df.columns:
+        df = df.sort_values("time")
+    else:
+        df = df.iloc[::-1]
+
+    df = df.reset_index(drop=True)
+    return df
+
+
+def _drop_unclosed_candle(df: pd.DataFrame, interval: str) -> pd.DataFrame:
+    if df is None or df.empty or "time" not in df.columns:
+        return df
+    last_ts = df.iloc[-1].get("time")
+    if not isinstance(last_ts, pd.Timestamp) or pd.isna(last_ts):
+        return df
+    interval_sec = _interval_to_seconds(interval)
+    now = pd.Timestamp.now(tz="UTC")
+    # Assume chart timestamps represent candle start.
+    if last_ts + pd.Timedelta(seconds=interval_sec) > now:
+        return df.iloc[:-1].reset_index(drop=True)
+    return df
+
+
+def _compute_bollinger(close: pd.Series, period: int = 20, num_std: float = 2.0) -> tuple[float, float, float]:
+    mid = close.rolling(window=period).mean()
+    std = close.rolling(window=period).std(ddof=0)
+    upper = mid + (num_std * std)
+    lower = mid - (num_std * std)
+    return float(mid.iloc[-1]), float(upper.iloc[-1]), float(lower.iloc[-1])
+
+
+def _compute_coinone_indicators(df: pd.DataFrame) -> dict:
+    close = df["close"]
+    high = df["high"] if "high" in df.columns else close
+    low = df["low"] if "low" in df.columns else close
+
+    # Prefer target_volume when available.
+    if "target_volume" in df.columns:
+        volume = df["target_volume"].fillna(0)
+    elif "volume" in df.columns:
+        volume = df["volume"].fillna(0)
+    elif "quote_volume" in df.columns:
+        volume = df["quote_volume"].fillna(0)
+    else:
+        volume = pd.Series([0] * len(df))
+
+    rsi_series = calc_rsi(close, period=14)
+    macd_line, signal_line, hist = calc_macd(close, fast=12, slow=26, signal=9)
+    ema20 = calc_ema(close, span=20)
+    ema50 = calc_ema(close, span=50)
+    vma20 = calc_volume_ma(volume, period=20)
+    atr14 = calc_atr(high, low, close, period=14)
+    bb_mid, bb_upper, bb_lower = _compute_bollinger(close, period=20, num_std=2.0)
+
+    last_close = float(close.iloc[-1])
+    bb_width = (bb_upper - bb_lower) if (bb_upper is not None and bb_lower is not None) else None
+    bb_pos = None
+    if bb_width and bb_width > 0:
+        bb_pos = (last_close - bb_lower) / bb_width
+
+    return {
+        "close": last_close,
+        "rsi14": float(rsi_series.iloc[-1]),
+        "macd": float(macd_line.iloc[-1]),
+        "macd_signal": float(signal_line.iloc[-1]),
+        "macd_hist": float(hist.iloc[-1]),
+        "ema20": float(ema20.iloc[-1]),
+        "ema50": float(ema50.iloc[-1]),
+        "bb_mid": float(bb_mid),
+        "bb_upper": float(bb_upper),
+        "bb_lower": float(bb_lower),
+        "bb_pos": float(bb_pos) if bb_pos is not None else None,
+        "atr14": float(atr14.iloc[-1]),
+        "volume": float(volume.iloc[-1]) if len(volume) else 0.0,
+        "volume_ma20": float(vma20.iloc[-1]) if len(vma20) else 0.0,
+    }
+
+
 def _compute_indicators(df: pd.DataFrame, price_col: str = "close"):
     close = df[price_col]
     high = df["high"]
@@ -408,37 +534,89 @@ class MultiCryptoRecommendation(BaseStrippedModel):
 
 def collect_crypto_data(symbol: str, start_date: str, news_count: int = 10, from_upbit: bool = False):
     """특정 암호화폐의 모든 관련 데이터를 수집합니다."""
+    # Default optional fields for callers.
+    crypto_data_csv = ""
+    network_stats_csv = ""
+    ta_1h = {}
+    ta_1d = {}
+    closes_1h_csv = ""
+    closes_1d_csv = ""
+
     if from_upbit:
+        # Upbit/rebalance flow keeps richer fundamentals/history.
         tickers = upbit.get_ticker(symbol)
         ticker = tickers[0]
         crypto_price = ticker["trade_price"]
+
+        crypto_data = crypto.get_quotes(symbol)
+        input_data = dict(
+            ticker,
+            circulating_supply=crypto_data["circulating_supply"],
+            max_supply=crypto_data["max_supply"],
+            total_supply=crypto_data["total_supply"],
+            **crypto_data["quote"]["KRW"],
+            current_price=crypto_price,
+        )
+
+        historical_data = crypto.get_historical_data(symbol, "KRW", 30)
+        df = pd.DataFrame(historical_data)
+        df = df.drop(columns=["conversionType", "conversionSymbol"])
+        crypto_data_csv = df.to_csv(index=False)
+
+        if symbol == "BTC":
+            network_stats = crypto.get_network_stats()
+            df = pd.DataFrame(network_stats, index=[0])
+            network_stats_csv = df.to_csv(index=False)
     else:
+        # Coinone auto trading: indicator-centric payload to reduce tokens.
         ticker = coinone.get_ticker(symbol)
-        crypto_price = (float(ticker["best_asks"][0]["price"]) + float(ticker["best_bids"][0]["price"])) / 2
+        best_asks = ticker.get("best_asks") or []
+        best_bids = ticker.get("best_bids") or []
+        best_ask = float((best_asks[0] or {}).get("price") or 0) if best_asks else 0.0
+        best_bid = float((best_bids[0] or {}).get("price") or 0) if best_bids else 0.0
+        crypto_price = (best_ask + best_bid) / 2 if best_ask and best_bid else float(ticker.get("last") or 0)
 
-    crypto_data = crypto.get_quotes(symbol)
+        # Candles for indicators
+        candles_1h = coinone.get_candles(symbol, "1h", size=200)
+        df_1h = _coinone_chart_to_dataframe((candles_1h or {}).get("chart") or [])
+        df_1h = _drop_unclosed_candle(df_1h, "1h")
 
-    input_data = dict(
-        ticker,
-        circulating_supply=crypto_data["circulating_supply"],
-        max_supply=crypto_data["max_supply"],
-        total_supply=crypto_data["total_supply"],
-        **crypto_data["quote"]["KRW"],
-        current_price=crypto_price,
-    )
+        candles_1d = coinone.get_candles(symbol, "1d", size=180)
+        df_1d = _coinone_chart_to_dataframe((candles_1d or {}).get("chart") or [])
+        df_1d = _drop_unclosed_candle(df_1d, "1d")
 
-    # 과거 데이터 수집
-    historical_data = crypto.get_historical_data(symbol, "KRW", 30)
-    df = pd.DataFrame(historical_data)
-    df = df.drop(columns=["conversionType", "conversionSymbol"])
-    crypto_data_csv = df.to_csv(index=False)
+        if len(df_1h) >= 60:
+            ta_1h = _compute_coinone_indicators(df_1h)
+            closes_1h_csv = df_1h[["time", "close"]].tail(12).to_csv(index=False)
+        if len(df_1d) >= 60:
+            ta_1d = _compute_coinone_indicators(df_1d)
+            closes_1d_csv = df_1d[["time", "close"]].tail(14).to_csv(index=False)
 
-    # 네트워크 데이터 (비트코인만)
-    network_stats_csv = ""
-    if symbol == "BTC":
-        network_stats = crypto.get_network_stats()
-        df = pd.DataFrame(network_stats, index=[0])
-        network_stats_csv = df.to_csv(index=False)
+        # Compute basic returns from daily series.
+        ret_7d = None
+        ret_30d = None
+        if len(df_1d) >= 8:
+            ret_7d = (float(df_1d["close"].iloc[-1]) / float(df_1d["close"].iloc[-8]) - 1) * 100
+        if len(df_1d) >= 31:
+            ret_30d = (float(df_1d["close"].iloc[-1]) / float(df_1d["close"].iloc[-31]) - 1) * 100
+
+        spread_pct = None
+        if best_ask and best_bid:
+            spread_pct = ((best_ask / best_bid) - 1) * 100
+
+        input_data = {
+            "symbol": symbol,
+            "current_price": float(crypto_price or 0),
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "spread_pct": spread_pct,
+            "high_24h": float(ticker.get("high") or 0),
+            "low_24h": float(ticker.get("low") or 0),
+            "quote_volume_24h": float(ticker.get("quote_volume") or 0),
+            "target_volume_24h": float(ticker.get("target_volume") or 0),
+            "ret_7d_pct": ret_7d,
+            "ret_30d_pct": ret_30d,
+        }
 
     # 뉴스 데이터
     if settings.DEBUG:
@@ -468,6 +646,10 @@ def collect_crypto_data(symbol: str, start_date: str, news_count: int = 10, from
         "crypto_data_csv": crypto_data_csv,
         "network_stats_csv": network_stats_csv,
         "crypto_news_csv": crypto_news_csv,
+        "ta_1h": ta_1h,
+        "ta_1d": ta_1d,
+        "closes_1h_csv": closes_1h_csv,
+        "closes_1d_csv": closes_1d_csv,
     }
 
 
@@ -496,20 +678,27 @@ Market data in JSON
 ```json
 {symbol}_market_json
 ```
-Recent trading data in KRW in JSON
+Market snapshot in JSON
 ```json
-{symbol}_json_data
+{symbol}_snapshot_json
 ```
-Historical data in USD in CSV
+Technical indicators (computed from Coinone candles)
+1h timeframe indicators in JSON
+```json
+{symbol}_ta_1h_json
+```
+1d timeframe indicators in JSON
+```json
+{symbol}_ta_1d_json
+```
+Recent closes (minimal raw data)
+1h closes (last 12 rows) in CSV
 ```csv
-{symbol}_crypto_data_csv
-```"""
-
-        if data["network_stats_csv"]:  # BTC인 경우
-            description += f"""
-Network stats in CSV
+{symbol}_closes_1h_csv
+```
+1d closes (last 14 rows) in CSV
 ```csv
-{symbol}_network_stats_csv
+{symbol}_closes_1d_csv
 ```"""
 
         description += f"""
@@ -518,7 +707,7 @@ News in CSV
 {symbol}_crypto_news_csv
 ```"""
         description = re.sub(
-            rf"^({symbol}_(json_data|crypto_data_csv|network_stats_csv|crypto_news_csv|balance_json|market_json))",
+            rf"^({symbol}_(snapshot_json|ta_1h_json|ta_1d_json|closes_1h_csv|closes_1d_csv|crypto_news_csv|balance_json|market_json))",
             r"{\1}",
             description,
             flags=re.MULTILINE,
@@ -555,19 +744,23 @@ Recent trades in KRW in CSV
         kwargs.update(
             {
                 f"{symbol}_balance_json": json.dumps(balance),
-                f"{symbol}_json_data": json.dumps(data["input_data"]),
+                f"{symbol}_snapshot_json": json.dumps(data["input_data"], ensure_ascii=False),
                 f"{symbol}_market_json": json.dumps(market),
-                f"{symbol}_crypto_data_csv": data["crypto_data_csv"],
+                f"{symbol}_ta_1h_json": json.dumps(data.get("ta_1h") or {}, ensure_ascii=False),
+                f"{symbol}_ta_1d_json": json.dumps(data.get("ta_1d") or {}, ensure_ascii=False),
+                f"{symbol}_closes_1h_csv": data.get("closes_1h_csv") or "",
+                f"{symbol}_closes_1d_csv": data.get("closes_1d_csv") or "",
                 f"{symbol}_crypto_news_csv": data["crypto_news_csv"],
             }
         )
-        if data["network_stats_csv"]:  # BTC인 경우
-            kwargs[f"{symbol}_network_stats_csv"] = data["network_stats_csv"]
 
     krw_balance = int(float(balances["KRW"]["available"] or 0))
     prompt = f"""You are a crypto trading advisor that evaluates optimal trading opportunities at regular 4-hour intervals. At each evaluation point, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. You have access to:
- - Real-time data, historical prices, volatility, news, sentiment
- - Recent trading history in CSV format (use this to learn from past decisions and patterns)
+ - Market snapshot (price/spread/returns), account balances, order constraints
+ - Technical indicators computed from Coinone candles (1h, 1d)
+ - Minimal raw closes (1h/1d) for context only
+  - News (raw)
+  - Recent trading history in CSV format (use this to learn from past decisions and patterns)
  - KRW balance: {krw_balance:,} KRW
  - Total coin value: {total_coin_value:,} KRW
  - Total portfolio value: {total_coin_value + krw_balance:,} KRW
@@ -658,7 +851,13 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Evaluate whether NOW is a good time to trade or if waiting is better
    - Don't feel pressured to trade - sometimes the best decision is to do nothing
    - Assess if market conditions are clear enough to make confident decisions
-   - Consider the timeframe: 6-hour evaluation cycles mean focusing on short-to-medium term opportunities
+   - Consider the timeframe: evaluation cycles are 4 hours (short-to-medium term)
+
+9) Spread / Liquidity Safety (STRICT):
+   - Use spread_pct from Market snapshot.
+   - If spread_pct is null OR spread_pct >= 1.0%, do NOT recommend BUY for that coin.
+   - If spread_pct >= 2.0%, do NOT recommend any trade (BUY/SELL) for that coin.
+   - Prefer skipping a trade over trading illiquid/abnormal orderbooks.
 
 Output must be valid YAML with these sections:
 ```yaml
@@ -1099,10 +1298,49 @@ def auto_trading():
 
         final_balances = None
 
+        skipped = []
+
         # 추천받은 거래 실행
         for recommendation in result.recommendations:
             symbol = recommendation.symbol
             crypto_data = user_crypto_data[symbol]
+
+            snapshot = (crypto_data or {}).get("input_data") or {}
+            spread_pct = snapshot.get("spread_pct")
+            best_bid = snapshot.get("best_bid")
+            best_ask = snapshot.get("best_ask")
+            action = recommendation.action
+
+            # Hard safety filter for abnormal/illiquid orderbooks.
+            should_skip = False
+            skip_reason = None
+            try:
+                spread_val = float(spread_pct) if spread_pct is not None else None
+            except Exception:
+                spread_val = None
+
+            if spread_val is None:
+                should_skip = True
+                skip_reason = "missing spread_pct"
+            elif spread_val >= 2.0:
+                should_skip = True
+                skip_reason = f"spread_pct {spread_val:.2f}% >= 2.00%"
+            elif action == "BUY" and spread_val >= 1.0:
+                should_skip = True
+                skip_reason = f"spread_pct {spread_val:.2f}% >= 1.00% (BUY blocked)"
+
+            if should_skip:
+                skipped.append(
+                    {
+                        "symbol": symbol,
+                        "action": action,
+                        "spread_pct": spread_pct,
+                        "best_bid": best_bid,
+                        "best_ask": best_ask,
+                        "reason": skip_reason,
+                    }
+                )
+                continue
 
             try:
                 execute_trade(
@@ -1113,6 +1351,17 @@ def auto_trading():
                 )
             except Exception as e:
                 logging.exception(f"Error executing trade for {symbol}: {e}")
+
+        if skipped:
+            lines = ["자동 안전필터로 일부 추천을 제외했습니다 (스프레드/유동성):"]
+            for x in skipped:
+                spread_txt = f"{float(x['spread_pct']):.2f}%" if x.get("spread_pct") is not None else "null"
+                bid_txt = x.get("best_bid")
+                ask_txt = x.get("best_ask")
+                lines.append(
+                    f"- {x['action']} {x['symbol']}: spread={spread_txt}, bid={bid_txt}, ask={ask_txt} ({x['reason']})"
+                )
+            send_message("\n".join(lines), chat_id=chat_id, is_markdown=False)
 
         # 현재 잔고 가치 저장
         final_balances = coinone.get_balances()
