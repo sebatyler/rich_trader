@@ -39,6 +39,7 @@ from core.indicators import rsi as calc_rsi
 from core.indicators import volume_ma as calc_volume_ma
 from core.llm import invoke_gemini_search
 from core.llm import invoke_llm
+from core.market_time import compute_market_time
 from core.parameter_optimization import create_optimization_payload
 from core.parameter_optimization import request_optimized_parameters
 from core.telegram import send_message
@@ -82,7 +83,9 @@ def _dump_llm_inputs(
     os.makedirs(out_dir, exist_ok=True)
 
     ts = timezone.now().strftime("%Y%m%dT%H%M%S")
-    base = os.path.join(out_dir, f"{ts}_{_safe_filename_slug(name)}_{_safe_filename_slug(user_slug)}")
+    base = os.path.join(
+        out_dir, f"{ts}_{_safe_filename_slug(name)}_{_safe_filename_slug(user_slug)}"
+    )
 
     # Render what the LLM will see (best-effort).
     rendered = None
@@ -103,9 +106,13 @@ def _dump_llm_inputs(
     kw_sizes = []
     for k, v in (template_kwargs or {}).items():
         if isinstance(v, (str, bytes)):
-            kw_sizes.append((k, _byte_len(v if isinstance(v, str) else v.decode("utf-8", "ignore"))))
+            kw_sizes.append(
+                (k, _byte_len(v if isinstance(v, str) else v.decode("utf-8", "ignore")))
+            )
         else:
-            kw_sizes.append((k, _byte_len(json.dumps(v, ensure_ascii=False, default=str))))
+            kw_sizes.append(
+                (k, _byte_len(json.dumps(v, ensure_ascii=False, default=str)))
+            )
     kw_sizes.sort(key=lambda x: x[1], reverse=True)
 
     meta = {
@@ -219,7 +226,9 @@ def _drop_unclosed_candle(df: pd.DataFrame, interval: str) -> pd.DataFrame:
     return df
 
 
-def _compute_bollinger(close: pd.Series, period: int = 20, num_std: float = 2.0) -> tuple[float, float, float]:
+def _compute_bollinger(
+    close: pd.Series, period: int = 20, num_std: float = 2.0
+) -> tuple[float, float, float]:
     mid = close.rolling(window=period).mean()
     std = close.rolling(window=period).std(ddof=0)
     upper = mid + (num_std * std)
@@ -251,7 +260,11 @@ def _compute_coinone_indicators(df: pd.DataFrame) -> dict:
     bb_mid, bb_upper, bb_lower = _compute_bollinger(close, period=20, num_std=2.0)
 
     last_close = float(close.iloc[-1])
-    bb_width = (bb_upper - bb_lower) if (bb_upper is not None and bb_lower is not None) else None
+    bb_width = (
+        (bb_upper - bb_lower)
+        if (bb_upper is not None and bb_lower is not None)
+        else None
+    )
     bb_pos = None
     if bb_width and bb_width > 0:
         bb_pos = (last_close - bb_lower) / bb_width
@@ -306,7 +319,9 @@ def _compute_indicators(df: pd.DataFrame, price_col: str = "close"):
 def _rule_based_buy_signal(ind_5m: dict, ind_15m: dict) -> bool:
     cond_rsi = ind_5m["rsi"] > 40 and ind_15m["rsi"] >= 45
     cond_macd = ind_5m["macd_hist"] > 0
-    cond_trend = ind_5m["close"] > ind_5m["ema20"] and ind_5m["ema20"] >= ind_5m["ema50"]
+    cond_trend = (
+        ind_5m["close"] > ind_5m["ema20"] and ind_5m["ema20"] >= ind_5m["ema50"]
+    )
     cond_vol = ind_5m["volume"] >= ind_5m["volume_ma20"]
     cond_15m_trend = ind_15m["ema20"] >= ind_15m["ema50"]
     return cond_rsi and cond_macd and cond_trend and cond_vol and cond_15m_trend
@@ -317,7 +332,9 @@ def _rule_based_scalp_long_signal(ind_3m: dict, ind_5m: dict, ind_15m: dict) -> 
     cond_macd = ind_3m["macd_hist"] > 0
     cond_trend = ind_3m["close"] > ind_3m["ema20"] >= ind_3m["ema50"]
     cond_vol = ind_3m["volume"] >= ind_3m["volume_ma20"]
-    cond_htf_trend = ind_5m["ema20"] >= ind_5m["ema50"] and ind_15m["ema20"] >= ind_15m["ema50"]
+    cond_htf_trend = (
+        ind_5m["ema20"] >= ind_5m["ema50"] and ind_15m["ema20"] >= ind_15m["ema50"]
+    )
     return cond_rsi and cond_macd and cond_trend and cond_vol and cond_htf_trend
 
 
@@ -326,11 +343,15 @@ def _rule_based_scalp_short_signal(ind_3m: dict, ind_5m: dict, ind_15m: dict) ->
     cond_macd = ind_3m["macd_hist"] < 0
     cond_trend = ind_3m["close"] < ind_3m["ema20"] <= ind_3m["ema50"]
     cond_vol = ind_3m["volume"] >= ind_3m["volume_ma20"]
-    cond_htf_trend = ind_5m["ema20"] <= ind_5m["ema50"] and ind_15m["ema20"] <= ind_15m["ema50"]
+    cond_htf_trend = (
+        ind_5m["ema20"] <= ind_5m["ema50"] and ind_15m["ema20"] <= ind_15m["ema50"]
+    )
     return cond_rsi and cond_macd and cond_trend and cond_vol and cond_htf_trend
 
 
-def _format_telegram_message(symbol: str, side: str, tf3: dict, tf5: dict, tf15: dict, decision: dict) -> str:
+def _format_telegram_message(
+    symbol: str, side: str, tf3: dict, tf5: dict, tf15: dict, decision: dict
+) -> str:
     entry = decision.get("entry_price")
     sl = decision.get("stop_loss")
     tp = decision.get("take_profit")
@@ -425,10 +446,18 @@ def scan_bybit_signals():
             reason: str = Field(..., description="The reason in Korean (<=2 sentences)")
             entry_price: float = Field(..., description="The entry price")
             stop_loss: float = Field(..., description="The stop loss")
-            take_profit: float = Field(..., description="The take profit reachable in minutes")
-            expected_profit_pct: float = Field(..., description="Net expected profit % at 1x, fees included")
-            recommended_leverage: int = Field(..., description="Leverage (e.g., 10/25/50)")
-            few_minutes_profitable: bool = Field(..., description="Likely to realize within next 1-3 3m candles")
+            take_profit: float = Field(
+                ..., description="The take profit reachable in minutes"
+            )
+            expected_profit_pct: float = Field(
+                ..., description="Net expected profit % at 1x, fees included"
+            )
+            recommended_leverage: int = Field(
+                ..., description="Leverage (e.g., 10/25/50)"
+            )
+            few_minutes_profitable: bool = Field(
+                ..., description="Likely to realize within next 1-3 3m candles"
+            )
 
         system = (
             "You are a trading assistant for Bybit USDT perpetual futures (cross). "
@@ -486,18 +515,28 @@ def scan_bybit_signals():
             logging.exception(f"Bybit decision error for {symbol}: {decision['error']}")
         else:
             exp = decision.get("expected_profit_pct")
-            should_notify = bool(decision.get("trade_signal")) and isinstance(exp, (int, float)) and exp >= 0.1
+            should_notify = (
+                bool(decision.get("trade_signal"))
+                and isinstance(exp, (int, float))
+                and exp >= 0.1
+            )
             if should_notify:
-                text = _format_telegram_message(symbol, decision.get("side", "LONG"), ind3, ind5, ind15, decision)
+                text = _format_telegram_message(
+                    symbol, decision.get("side", "LONG"), ind3, ind5, ind15, decision
+                )
                 for cfg in configs:
                     # double-check enabled and membership
-                    if cfg.bybit_alert_enabled and symbol in (cfg.bybit_target_coins or []):
+                    if cfg.bybit_alert_enabled and symbol in (
+                        cfg.bybit_target_coins or []
+                    ):
                         chat_id = cfg.telegram_chat_id
                         if chat_id:
                             try:
                                 send_message(text, chat_id=chat_id, is_markdown=False)
                             except Exception:
-                                logging.exception(f"Failed to send Telegram message for {symbol} to chat_id={chat_id}")
+                                logging.exception(
+                                    f"Failed to send Telegram message for {symbol} to chat_id={chat_id}"
+                                )
 
         results.append(
             {
@@ -520,19 +559,29 @@ class BaseStrippedModel(BaseModel):
 class Recommendation(BaseStrippedModel):
     action: str = Field(..., description="The action to take (BUY or SELL)")
     symbol: str = Field(..., description="The symbol of the cryptocurrency")
-    amount: Optional[int] = Field(default=None, description="The amount of the cryptocurrency to buy in KRW")
-    quantity: Optional[float] = Field(default=None, description="The quantity of the cryptocurrency to sell")
-    limit_price: Optional[float] = Field(default=None, description="The limit price for the order")
+    amount: Optional[int] = Field(
+        default=None, description="The amount of the cryptocurrency to buy in KRW"
+    )
+    quantity: Optional[float] = Field(
+        default=None, description="The quantity of the cryptocurrency to sell"
+    )
+    limit_price: Optional[float] = Field(
+        default=None, description="The limit price for the order"
+    )
     reason: str = Field(..., description="The reason for the recommendation")
 
 
 class MultiCryptoRecommendation(BaseStrippedModel):
     scratchpad: str = Field(..., description="The analysis scratchpad text")
     reasoning: str = Field(..., description="The reasoning text")
-    recommendations: list[Recommendation] = Field(..., description="List of recommended cryptocurrency trades")
+    recommendations: list[Recommendation] = Field(
+        ..., description="List of recommended cryptocurrency trades"
+    )
 
 
-def collect_crypto_data(symbol: str, start_date: str, news_count: int = 10, from_upbit: bool = False):
+def collect_crypto_data(
+    symbol: str, start_date: str, news_count: int = 10, from_upbit: bool = False
+):
     """특정 암호화폐의 모든 관련 데이터를 수집합니다."""
     # Default optional fields for callers.
     crypto_data_csv = ""
@@ -574,7 +623,11 @@ def collect_crypto_data(symbol: str, start_date: str, news_count: int = 10, from
         best_bids = ticker.get("best_bids") or []
         best_ask = float((best_asks[0] or {}).get("price") or 0) if best_asks else 0.0
         best_bid = float((best_bids[0] or {}).get("price") or 0) if best_bids else 0.0
-        crypto_price = (best_ask + best_bid) / 2 if best_ask and best_bid else float(ticker.get("last") or 0)
+        crypto_price = (
+            (best_ask + best_bid) / 2
+            if best_ask and best_bid
+            else float(ticker.get("last") or 0)
+        )
 
         # Candles for indicators
         candles_1h = coinone.get_candles(symbol, "1h", size=200)
@@ -596,9 +649,13 @@ def collect_crypto_data(symbol: str, start_date: str, news_count: int = 10, from
         ret_7d = None
         ret_30d = None
         if len(df_1d) >= 8:
-            ret_7d = (float(df_1d["close"].iloc[-1]) / float(df_1d["close"].iloc[-8]) - 1) * 100
+            ret_7d = (
+                float(df_1d["close"].iloc[-1]) / float(df_1d["close"].iloc[-8]) - 1
+            ) * 100
         if len(df_1d) >= 31:
-            ret_30d = (float(df_1d["close"].iloc[-1]) / float(df_1d["close"].iloc[-31]) - 1) * 100
+            ret_30d = (
+                float(df_1d["close"].iloc[-1]) / float(df_1d["close"].iloc[-31]) - 1
+            ) * 100
 
         spread_pct = None
         if best_ask and best_bid:
@@ -627,12 +684,16 @@ def collect_crypto_data(symbol: str, start_date: str, news_count: int = 10, from
         df = (
             pd.DataFrame(crypto_news)
             if crypto_news
-            else pd.DataFrame(columns=["source", "title", "description", "publishedAt", "content"])
+            else pd.DataFrame(
+                columns=["source", "title", "description", "publishedAt", "content"]
+            )
         )
         if not df.empty:
             # Ensure consistent columns and source name normalization
             if "source" in df.columns:
-                df["source"] = df["source"].apply(lambda x: (x or {}).get("name") if isinstance(x, dict) else x)
+                df["source"] = df["source"].apply(
+                    lambda x: (x or {}).get("name") if isinstance(x, dict) else x
+                )
             expected_cols = ["source", "title", "description", "publishedAt", "content"]
             missing = [c for c in expected_cols if c not in df.columns]
             for c in missing:
@@ -662,6 +723,7 @@ def get_multi_recommendation(
     recent_trades_csv: str,
     trading_config: TradingConfig,
     with_fallback: bool = False,
+    market_time_context: Optional[str] = None,
 ) -> MultiCryptoRecommendation:
     """LLM을 사용하여 암호화폐 투자 추천을 받습니다."""
     # 각 코인별 데이터를 하나의 문자열로 조합
@@ -744,10 +806,16 @@ Recent trades in KRW in CSV
         kwargs.update(
             {
                 f"{symbol}_balance_json": json.dumps(balance),
-                f"{symbol}_snapshot_json": json.dumps(data["input_data"], ensure_ascii=False),
+                f"{symbol}_snapshot_json": json.dumps(
+                    data["input_data"], ensure_ascii=False
+                ),
                 f"{symbol}_market_json": json.dumps(market),
-                f"{symbol}_ta_1h_json": json.dumps(data.get("ta_1h") or {}, ensure_ascii=False),
-                f"{symbol}_ta_1d_json": json.dumps(data.get("ta_1d") or {}, ensure_ascii=False),
+                f"{symbol}_ta_1h_json": json.dumps(
+                    data.get("ta_1h") or {}, ensure_ascii=False
+                ),
+                f"{symbol}_ta_1d_json": json.dumps(
+                    data.get("ta_1d") or {}, ensure_ascii=False
+                ),
                 f"{symbol}_closes_1h_csv": data.get("closes_1h_csv") or "",
                 f"{symbol}_closes_1d_csv": data.get("closes_1d_csv") or "",
                 f"{symbol}_crypto_news_csv": data["crypto_news_csv"],
@@ -755,7 +823,7 @@ Recent trades in KRW in CSV
         )
 
     krw_balance = int(float(balances["KRW"]["available"] or 0))
-    prompt = f"""You are a crypto trading advisor that evaluates optimal trading opportunities at regular 4-hour intervals. At each evaluation point, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. You have access to:
+    prompt = f"""You are a crypto trading advisor invoked hourly at :15. Perform heavy evaluation ONLY during session-slot windows (KRX/KST OPEN/MID/CLOSE and NYSE/ET OPEN/MID/CLOSE; up to 6 per day). At each slot trigger, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. You have access to:
  - Market snapshot (price/spread/returns), account balances, order constraints
  - Technical indicators computed from Coinone candles (1h, 1d)
  - Minimal raw closes (1h/1d) for context only
@@ -767,7 +835,9 @@ Recent trades in KRW in CSV
  - Min trade: {trading_config.min_trade_amount:,} KRW, step: {trading_config.step_amount:,} KRW
 
 CRITICAL CONTEXT - EVALUATION AT THIS MOMENT:
-- This system evaluates trading opportunities every 4 hours (6 times per day)
+- Invoked hourly at :15; heavy evaluation occurs only during session-slot windows (up to 6 per day)
+- Market time context: {market_time_context or "N/A"}
+- If markets_closed=true, treat equity indices as stale/unchanged (previous close) and do not over-weight them
 - Your goal: Assess the CURRENT SITUATION and recommend the OPTIMAL trades RIGHT NOW
 - You are NOT required to make trades every cycle - only recommend when opportunities are genuinely attractive
 - Use ALL provided data (prices, indicators, news, recent trades) to make informed decisions
@@ -851,7 +921,7 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Evaluate whether NOW is a good time to trade or if waiting is better
    - Don't feel pressured to trade - sometimes the best decision is to do nothing
    - Assess if market conditions are clear enough to make confident decisions
-   - Consider the timeframe: evaluation cycles are 4 hours (short-to-medium term)
+   - Consider the timeframe: session-slot windows (short-to-medium term)
 
 9) Spread / Liquidity Safety (STRICT):
    - Use spread_pct from Market snapshot.
@@ -1092,7 +1162,9 @@ def send_trade_result(trading: Trading, balances: dict, chat_id: str):
     quantity = Decimal(trading.executed_qty or 0)
     amount = int(quantity * (trading.average_executed_price or 0))
 
-    message_lines = [f"{trading.side}: {format_quantity(quantity)} {symbol} ({amount:,} 원)"]
+    message_lines = [
+        f"{trading.side}: {format_quantity(quantity)} {symbol} ({amount:,} 원)"
+    ]
     if quantity:
         coin_quantity = Decimal(balances[symbol]["available"])
         coin_value = coin_quantity * trading.price
@@ -1112,7 +1184,9 @@ def send_trade_result(trading: Trading, balances: dict, chat_id: str):
             if trading.side == "BUY"
             else f"추천 매도수량: {format_quantity(trading.quantity)} {symbol}"
         )
-        message_lines.append(f"주문 취소됨! 주문하는게 좋다고 판단하면 직접 주문하세요. {trading.side} / {order}")
+        message_lines.append(
+            f"주문 취소됨! 주문하는게 좋다고 판단하면 직접 주문하세요. {trading.side} / {order}"
+        )
 
     send_message("\n".join(message_lines), chat_id=chat_id)
 
@@ -1153,7 +1227,9 @@ def process_trade(
     return balances, trading
 
 
-def execute_trade(user, recommendation: Recommendation, crypto_data: dict, chat_id: str) -> dict:
+def execute_trade(
+    user, recommendation: Recommendation, crypto_data: dict, chat_id: str
+) -> dict:
     """거래를 실행하고 결과를 처리합니다."""
     action = recommendation.action
     symbol = recommendation.symbol
@@ -1203,6 +1279,15 @@ def execute_trade(user, recommendation: Recommendation, crypto_data: dict, chat_
 
 def auto_trading():
     """암호화폐 매매 프로세스를 실행합니다."""
+    mt = compute_market_time(timezone.now())
+    if not mt.should_run:
+        logging.info(
+            f"auto_trading: outside session-slot windows; {mt.market_time_context}"
+        )
+        return
+
+    market_time_context = mt.market_time_context
+
     # 오늘 날짜와 한 달 전 날짜 설정
     end_date = timezone.localdate()
     start_date = (end_date - timedelta(days=30)).strftime("%Y-%m-%d")
@@ -1256,7 +1341,10 @@ def auto_trading():
                 data = dict(crypto_data_dict[symbol])
                 balance = balances.get(symbol)
                 if balance:
-                    current_value = float(balance.get("available") or 0) * data["input_data"]["current_price"]
+                    current_value = (
+                        float(balance.get("available") or 0)
+                        * data["input_data"]["current_price"]
+                    )
                     data["input_data"]["current_value"] = current_value
                     total_coin_value += current_value
                 user_crypto_data[symbol] = data
@@ -1274,6 +1362,7 @@ def auto_trading():
                     markets,
                     recent_trades_csv,
                     config,
+                    market_time_context=market_time_context,
                     with_fallback=i > 0,
                 )
                 break
@@ -1282,7 +1371,9 @@ def auto_trading():
                 exc = e
 
         if not result and exc:
-            logging.exception(f"Error getting multi recommendation for {config.user}: {exc}")
+            logging.exception(
+                f"Error getting multi recommendation for {config.user}: {exc}"
+            )
             continue
 
         # DEBUG: dump-only mode (LLM not invoked; do not send telegram; do not trade)
@@ -1355,7 +1446,11 @@ def auto_trading():
         if skipped:
             lines = ["자동 안전필터로 일부 추천을 제외했습니다 (스프레드/유동성):"]
             for x in skipped:
-                spread_txt = f"{float(x['spread_pct']):.2f}%" if x.get("spread_pct") is not None else "null"
+                spread_txt = (
+                    f"{float(x['spread_pct']):.2f}%"
+                    if x.get("spread_pct") is not None
+                    else "null"
+                )
                 bid_txt = x.get("best_bid")
                 ask_txt = x.get("best_ask")
                 lines.append(
@@ -1424,7 +1519,10 @@ def rebalance_portfolio():
             crypto_data = collect_crypto_data(symbol, news_start_date, from_upbit=True)
             balance = balances.get(symbol)
             if balance:
-                current_value = float(balance.get("quantity", 0)) * crypto_data["input_data"]["current_price"]
+                current_value = (
+                    float(balance.get("quantity", 0))
+                    * crypto_data["input_data"]["current_price"]
+                )
                 crypto_data["input_data"]["current_value"] = current_value
                 total_coin_value += current_value
             crypto_data_dict[symbol] = crypto_data
@@ -1436,7 +1534,11 @@ def rebalance_portfolio():
     chat_id = config.telegram_chat_id
 
     # 해당 유저의 target_coins에 대한 데이터만 필터링
-    crypto_data = {symbol: crypto_data_dict[symbol] for symbol in target_coins if symbol in crypto_data_dict}
+    crypto_data = {
+        symbol: crypto_data_dict[symbol]
+        for symbol in target_coins
+        if symbol in crypto_data_dict
+    }
 
     # LLM에게 추천 받기
     result, exc = [None] * 2
@@ -1529,7 +1631,9 @@ def select_coins_to_buy():
 
     # 선택된 코인 정보 출력
     for i, coin in enumerate(coins, 1):
-        text_list.extend([f"{i}. {coin['name']} ({coin['symbol']}) ${coin['last_price']:.4f}"])
+        text_list.extend(
+            [f"{i}. {coin['name']} ({coin['symbol']}) ${coin['last_price']:.4f}"]
+        )
         text_list.append(f"Price 5 days ago: ${coin['first_price']:.4f}")
         text_list.append(f"Change over 5 days: {coin['change_5d']:.2f}%")
 
@@ -1626,7 +1730,9 @@ def get_coin_amounts(coins):
 
 def _buy_upbit_coins():
     data = upbit.get_balance_data()
-    balances, total_value, krw_value = dict_at(data, "balances", "total_value", "krw_value")
+    balances, total_value, krw_value = dict_at(
+        data, "balances", "total_value", "krw_value"
+    )
 
     # 총 자산이 4억 원 이상이면 구매 중지
     if total_value >= 400_000_000:
@@ -1645,7 +1751,9 @@ def _buy_upbit_coins():
     for coin, amount in coin_amounts.items():
         last_trading = next(
             (
-                UpbitTrading.objects.filter(coin=coin, is_dca=is_dca).order_by("-created").first()
+                UpbitTrading.objects.filter(coin=coin, is_dca=is_dca)
+                .order_by("-created")
+                .first()
                 for is_dca in (False, True)
             ),
             None,
@@ -1675,7 +1783,9 @@ def _buy_upbit_coins():
 
             # 마지막 매수한지 2시간 이상 지났고 2% 이상 하락했을 때만 구매
             price_change = (last_price - last_buy_price) / last_buy_price * 100
-            should_buy = price_change <= -2 and last_buy_at < timezone.now() - timedelta(hours=2)
+            should_buy = (
+                price_change <= -2 and last_buy_at < timezone.now() - timedelta(hours=2)
+            )
             logging.info(
                 f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
             )
@@ -1723,7 +1833,9 @@ def _buy_upbit_dca():
     # 코인 구매
     for coin, amount in coin_amounts.items():
         # 오늘 이미 매수한 코인이면 매수 안함
-        if UpbitTrading.objects.filter(coin=coin, is_dca=True, created__date=today).exists():
+        if UpbitTrading.objects.filter(
+            coin=coin, is_dca=True, created__date=today
+        ).exists():
             continue
 
         res = upbit.buy_coin(coin, amount)
@@ -1799,7 +1911,9 @@ class AutoTradingRunner:
         btc_data = balances.get("BTC", {})
         btc_available = float(btc_data.get("available") or 0)
         btc_avg_price = float(btc_data.get("average_price") or 0)
-        algo_param = AlgorithmParameter.objects.filter(user=self.user).order_by("-id").first()
+        algo_param = (
+            AlgorithmParameter.objects.filter(user=self.user).order_by("-id").first()
+        )
         if not algo_param:
             algo_param = AlgorithmParameter.objects.create(user=self.user)
         if len(prices) < max(algo_param.rsi_period, algo_param.bollinger_period):
@@ -1821,7 +1935,9 @@ class AutoTradingRunner:
         total_bid_volume = sum(bid_volumes[:5])
         total_ask_volume = sum(ask_volumes[:5])
         buy_pressure = (
-            total_bid_volume / (total_bid_volume + total_ask_volume) if total_bid_volume + total_ask_volume > 0 else 0.5
+            total_bid_volume / (total_bid_volume + total_ask_volume)
+            if total_bid_volume + total_ask_volume > 0
+            else 0.5
         )
         signal = ta.generate_trade_signal(
             buy_rsi_threshold=algo_param.buy_rsi_threshold,
@@ -1910,26 +2026,36 @@ class AutoTradingRunner:
         if last_stop_loss:
             elapsed = (now - last_stop_loss.created).total_seconds() / 60
             if elapsed < cooldown:
-                logging.info(f"STOP LOSS 쿨타임 적용중: {elapsed:.1f}분 경과, {cooldown}분 대기 필요")
+                logging.info(
+                    f"STOP LOSS 쿨타임 적용중: {elapsed:.1f}분 경과, {cooldown}분 대기 필요"
+                )
                 return
 
         # --- 분할매수/추가매수 로직 (최근 매도 이후 매수 기준) ---
         buy_ratio = getattr(algo_param, "buy_chunk_ratio", 0.5)
         min_trade_amount = float(btc_market.get("min_order_amount", 0))
-        buy_amount = max(min_trade_amount, krw_available * algo_param.max_krw_buy_ratio * buy_ratio)
+        buy_amount = max(
+            min_trade_amount, krw_available * algo_param.max_krw_buy_ratio * buy_ratio
+        )
         max_additional_buys = getattr(algo_param, "max_additional_buys", 2)
         # 1) 가장 최근 SELL(매도) AutoTrading의 id 구하기
-        last_sell = AutoTrading.objects.filter(trading__side="SELL", trading__coin="BTC").order_by("-created").first()
+        last_sell = (
+            AutoTrading.objects.filter(trading__side="SELL", trading__coin="BTC")
+            .order_by("-created")
+            .first()
+        )
         if last_sell:
             # 2) 그 id 이후의 BUY(매수) AutoTrading 중 첫 번째는 최초매수, 그 이후만 추가매수로 카운트
             buys_after_sell = list(
-                AutoTrading.objects.filter(trading__side="BUY", trading__coin="BTC", id__gt=last_sell.id).order_by(
-                    "created"
-                )
+                AutoTrading.objects.filter(
+                    trading__side="BUY", trading__coin="BTC", id__gt=last_sell.id
+                ).order_by("created")
             )
         else:
             buys_after_sell = list(
-                AutoTrading.objects.filter(trading__side="BUY", trading__coin="BTC").order_by("created")
+                AutoTrading.objects.filter(
+                    trading__side="BUY", trading__coin="BTC"
+                ).order_by("created")
             )
         # 최초매수 이후의 추가매수 카운트
         additional_buy_count = max(0, len(buys_after_sell) - 1)
@@ -1937,14 +2063,24 @@ class AutoTradingRunner:
             btc_available > 0
             and additional_buy_count < max_additional_buys
             and latest_rsi <= getattr(algo_param, "add_buy_rsi_threshold", 20.0)
-            and (current_price <= lower + getattr(algo_param, "add_buy_bollinger_band", -1.5) * (upper - middle) / 2)
+            and (
+                current_price
+                <= lower
+                + getattr(algo_param, "add_buy_bollinger_band", -1.5)
+                * (upper - middle)
+                / 2
+            )
         )
         # 신규매수 or 추가매수
         if signal == "BUY" and krw_available >= self.config.min_trade_amount:
             if (
                 (latest_rsi < algo_param.buy_rsi_threshold or current_price <= lower)
                 and buy_pressure >= algo_param.buy_pressure_threshold
-                and (profit_rate <= algo_param.buy_profit_rate or btc_available == 0 or add_buy_allowed)
+                and (
+                    profit_rate <= algo_param.buy_profit_rate
+                    or btc_available == 0
+                    or add_buy_allowed
+                )
             ):
                 order = coinone.buy_ticker("BTC", buy_amount)
                 if order and order.order_id:
@@ -1972,7 +2108,9 @@ class AutoTradingRunner:
                 sell_quantity = btc_available * sell_ratio
                 if sell_quantity < 1e-8:
                     return
-                order = coinone.sell_ticker("BTC", sell_quantity, limit_price=bid_prices[0])
+                order = coinone.sell_ticker(
+                    "BTC", sell_quantity, limit_price=bid_prices[0]
+                )
                 if order and order.order_id:
                     order_detail = coinone.get_order_detail(order.order_id, "BTC")
                     balances, trading_obj = process_trade(
@@ -2006,16 +2144,24 @@ def optimize_parameters():
     user = config.user
     # 최근 거래 데이터
     recent_trades = (
-        Trading.objects.filter(user=user, coin="BTC", auto_tradings__isnull=False).order_by("-id")[:50].values()
+        Trading.objects.filter(user=user, coin="BTC", auto_tradings__isnull=False)
+        .order_by("-id")[:50]
+        .values()
     )
     recent_trades = [dict_omit(trade, "status") for trade in recent_trades]
     # 현재 시점의 포트폴리오를 생성하여 export
-    coinone.init(access_key=config.coinone_access_key, secret_key=config.coinone_secret_key)
+    coinone.init(
+        access_key=config.coinone_access_key, secret_key=config.coinone_secret_key
+    )
     balances = coinone.get_balances()
     balances = {
         k: v
         for k, v in balances.items()
-        if k == "KRW" or (float(v.get("available") or 0) > 0 and float(v.get("average_price") or 0) > 0)
+        if k == "KRW"
+        or (
+            float(v.get("available") or 0) > 0
+            and float(v.get("average_price") or 0) > 0
+        )
     }
     btc_data = balances.get("BTC", {})
     btc_available = float(btc_data.get("available") or 0)
