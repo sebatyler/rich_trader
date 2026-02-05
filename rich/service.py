@@ -1728,6 +1728,57 @@ def get_coin_amounts(coins):
     return {coin: 20_000 if coin in major_coins else 10_000 for coin in coins}
 
 
+def _parse_ath_map():
+    ath_map_raw = constance.config.UPBIT_ATH_MAP_KRW
+    if not ath_map_raw:
+        return None
+
+    try:
+        if isinstance(ath_map_raw, dict):
+            ath_map = ath_map_raw
+        else:
+            ath_map = json.loads(ath_map_raw)
+        if not isinstance(ath_map, dict) or not ath_map:
+            return None
+        return ath_map
+    except (json.JSONDecodeError, ValueError) as e:
+        logging.warning(f"Invalid ATH map JSON: {ath_map_raw}, error: {e}")
+        return None
+
+
+def _filter_coins_by_ath(coins):
+    ath_map = _parse_ath_map()
+    if not ath_map:
+        return None
+
+    filtered = {coin for coin in coins if coin in ath_map}
+    return filtered
+
+
+def _check_extra_drop_exception(coin, last_price, last_trading, extra_drop_threshold):
+    if not last_trading:
+        return False
+
+    ath_map = _parse_ath_map()
+    if not ath_map or coin not in ath_map:
+        return False
+
+    ath_price = Decimal(str(ath_map[coin]))
+
+    last_buy_price = last_trading.average_price
+    last_buy_at = last_trading.created
+
+    if not last_buy_price:
+        return False
+
+    current_drawdown_pct = (ath_price - Decimal(str(last_price))) / ath_price * 100
+    last_buy_drawdown_pct = (ath_price - last_buy_price) / ath_price * 100
+
+    additional_drop_pct = current_drawdown_pct - last_buy_drawdown_pct
+
+    return additional_drop_pct >= extra_drop_threshold
+
+
 def _buy_upbit_coins():
     data = upbit.get_balance_data()
     balances, total_value, krw_value = dict_at(
@@ -1739,6 +1790,18 @@ def _buy_upbit_coins():
         return
 
     coins = {balance["symbol"].split(".")[0] for balance in balances}
+
+    # ATH 필터 적용
+    filtered_coins = _filter_coins_by_ath(coins)
+    if filtered_coins is None:
+        logging.warning("ATH map is empty or invalid, skipping auto-buy")
+        return
+
+    if not filtered_coins:
+        logging.info("No coins in ATH map, skipping auto-buy")
+        return
+
+    coins = filtered_coins
     coin_amounts = get_coin_amounts(coins)
 
     # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
@@ -1746,6 +1809,9 @@ def _buy_upbit_coins():
     logging.info(f"{required_krw=:,} {krw_value=:,.0f}")
     if krw_value < required_krw:
         return
+
+    today = timezone.localdate()
+    extra_drop_threshold = constance.config.UPBIT_ATH_EXTRA_DROP_PCT
 
     # 코인 구매
     for coin, amount in coin_amounts.items():
@@ -1786,6 +1852,27 @@ def _buy_upbit_coins():
             should_buy = (
                 price_change <= -2 and last_buy_at < timezone.now() - timedelta(hours=2)
             )
+
+            # 일일 매수 제한: 오늘 이미 매수했는지 확인 (추가 하락 예외 적용)
+            last_auto_buy_today = UpbitTrading.objects.filter(
+                coin=coin, is_dca=False, created__date=today
+            ).first()
+
+            if last_auto_buy_today:
+                # 추가 하락 예외 확인
+                extra_drop_allowed = _check_extra_drop_exception(
+                    coin, last_price, last_auto_buy_today, extra_drop_threshold
+                )
+                if not extra_drop_allowed:
+                    logging.info(
+                        f"{coin}: skipped (daily limit reached, no extra drop exception)"
+                    )
+                    should_buy = False
+                else:
+                    logging.info(
+                        f"{coin}: extra drop exception triggered (additional drop >= {extra_drop_threshold}%)"
+                    )
+
             logging.info(
                 f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
             )
@@ -1820,6 +1907,18 @@ def _buy_upbit_dca():
     balances, krw_value = dict_at(data, "balances", "krw_value")
 
     coins = {balance["symbol"].split(".")[0] for balance in balances}
+
+    # ATH 필터 적용
+    filtered_coins = _filter_coins_by_ath(coins)
+    if filtered_coins is None:
+        logging.warning("ATH map is empty or invalid, skipping DCA")
+        return
+
+    if not filtered_coins:
+        logging.info("No coins in ATH map, skipping DCA")
+        return
+
+    coins = filtered_coins
     coin_amounts = get_coin_amounts(coins)
 
     # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지

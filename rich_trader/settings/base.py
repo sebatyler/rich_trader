@@ -35,7 +35,9 @@ SECRET_KEY = "django-insecure-)fo36l*+#9#ng=@a&g!u*^c^42qgz(ka1%8$m73hp++91y+x#*
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-DJANGO_SETTINGS_MODULE = os.getenv("DJANGO_SETTINGS_MODULE", "rich_trader.settings.local")
+DJANGO_SETTINGS_MODULE = os.getenv(
+    "DJANGO_SETTINGS_MODULE", "rich_trader.settings.local"
+)
 PROJECT_NAME, *_, ENV = DJANGO_SETTINGS_MODULE.split(".")
 
 ALLOWED_HOSTS = ["*"]
@@ -197,7 +199,9 @@ FIREBASE_CONFIG = {
 firebase_cert_path = BASE_DIR / "credentials/firebase_service_account.json"
 if ENV != "test":
     if not firebase_cert_path.exists():
-        raise FileNotFoundError(f"Firebase service account file required: {firebase_cert_path}")
+        raise FileNotFoundError(
+            f"Firebase service account file required: {firebase_cert_path}"
+        )
 
     cred = credentials.Certificate(firebase_cert_path)
     firebase_admin.initialize_app(cred)
@@ -211,10 +215,27 @@ CRONTAB_DJANGO_SETTINGS_MODULE = "rich_trader.settings.prod"
 
 # Constance settings
 CONSTANCE_BACKEND = "constance.backends.database.DatabaseBackend"
+CONSTANCE_ADDITIONAL_FIELDS = {
+    dict: [
+        "django.forms.fields.JSONField",
+        {"widget": "django.forms.Textarea"},
+    ],
+}
 CONSTANCE_CONFIG = {
     "UPBIT_DCA_ENABLED": (True, "업비트 DCA(정기적정액투자) 실행 여부"),
     "UPBIT_AUTO_BUY_ENABLED": (True, "업비트 자동 매수 실행 여부"),
+    "UPBIT_ATH_MAP_KRW": (
+        {},
+        '업비트 코인별 ATH(All-Time High) 가격 KRW (JSON: {"BTC": 98000000, "ETH": 5200000})',
+        dict,
+    ),
+    "UPBIT_ATH_EXTRA_DROP_PCT": (5.0, "업비트 ATH 추가 하락 예외 기준 (% 포인트)"),
 }
 CONSTANCE_CONFIG_FIELDSETS = {
-    "업비트 자동 거래 설정": ("UPBIT_DCA_ENABLED", "UPBIT_AUTO_BUY_ENABLED"),
+    "업비트 자동 거래 설정": (
+        "UPBIT_DCA_ENABLED",
+        "UPBIT_AUTO_BUY_ENABLED",
+        "UPBIT_ATH_MAP_KRW",
+        "UPBIT_ATH_EXTRA_DROP_PCT",
+    ),
 }
