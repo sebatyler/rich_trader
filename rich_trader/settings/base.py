@@ -224,6 +224,11 @@ CONSTANCE_ADDITIONAL_FIELDS = {
 CONSTANCE_CONFIG = {
     "UPBIT_DCA_ENABLED": (True, "업비트 DCA(정기적정액투자) 실행 여부"),
     "UPBIT_AUTO_BUY_ENABLED": (True, "업비트 자동 매수 실행 여부"),
+    "UPBIT_AMOUNT_MAP_KRW": (
+        {},
+        '업비트 코인별 매수 금액 KRW (JSON: {"BTC": 20000, "ETH": 20000})',
+        dict,
+    ),
     "UPBIT_ATH_MAP_KRW": (
         {},
         '업비트 코인별 ATH(All-Time High) 가격 KRW (JSON: {"BTC": 98000000, "ETH": 5200000})',
@@ -235,6 +240,7 @@ CONSTANCE_CONFIG_FIELDSETS = {
     "업비트 자동 거래 설정": (
         "UPBIT_DCA_ENABLED",
         "UPBIT_AUTO_BUY_ENABLED",
+        "UPBIT_AMOUNT_MAP_KRW",
         "UPBIT_ATH_MAP_KRW",
         "UPBIT_ATH_EXTRA_DROP_PCT",
     ),

@@ -1723,9 +1723,12 @@ def update_upbit_portfolio():
 
 
 def get_coin_amounts(coins):
-    major_coins = {"BTC", "ETH", "XRP", "SOL"}
-    # TODO: django constance
-    return {coin: 20_000 if coin in major_coins else 10_000 for coin in coins}
+    # Constance 금액 맵 기준으로만 매수 금액 산출
+    amount_map = _parse_amount_map()
+    if not amount_map:
+        return None
+
+    return {coin: amount_map[coin] for coin in coins if coin in amount_map}
 
 
 def _parse_ath_map():
@@ -1734,15 +1737,28 @@ def _parse_ath_map():
         return None
 
     try:
-        if isinstance(ath_map_raw, dict):
-            ath_map = ath_map_raw
-        else:
-            ath_map = json.loads(ath_map_raw)
+        ath_map = ath_map_raw
         if not isinstance(ath_map, dict) or not ath_map:
             return None
         return ath_map
-    except (json.JSONDecodeError, ValueError) as e:
-        logging.warning(f"Invalid ATH map JSON: {ath_map_raw}, error: {e}")
+    except (TypeError, ValueError) as e:
+        logging.warning(f"Invalid ATH map: {ath_map_raw}, error: {e}")
+        return None
+
+
+def _parse_amount_map():
+    # 코인별 매수 금액 맵 (JSON/Dict) 파싱
+    amount_map_raw = constance.config.UPBIT_AMOUNT_MAP_KRW
+    if not amount_map_raw:
+        return None
+
+    try:
+        amount_map = amount_map_raw
+        if not isinstance(amount_map, dict) or not amount_map:
+            return None
+        return amount_map
+    except (TypeError, ValueError) as e:
+        logging.warning(f"Invalid amount map: {amount_map_raw}, error: {e}")
         return None
 
 
@@ -1753,6 +1769,36 @@ def _filter_coins_by_ath(coins):
 
     filtered = {coin for coin in coins if coin in ath_map}
     return filtered
+
+
+def _get_tiered_threshold(drawdown_pct: float) -> float:
+    """Get tiered price-drop threshold based on ATH drawdown percentage.
+
+    Args:
+        drawdown_pct: Current drawdown from ATH as percentage (0-100+)
+
+    Returns:
+        Required price-drop percentage threshold
+
+    Tiers:
+    - 0-20% drawdown: 1.0% threshold
+    - 20-40% drawdown: 2.0% threshold
+    - 40-60% drawdown: 3.0% threshold
+    - 60-80% drawdown: 4.0% threshold
+    - >80% drawdown: 5.0% threshold (capped)
+    """
+    if drawdown_pct < 0:
+        return 1.0
+    elif drawdown_pct < 20:
+        return 1.0
+    elif drawdown_pct < 40:
+        return 2.0
+    elif drawdown_pct < 60:
+        return 3.0
+    elif drawdown_pct < 80:
+        return 4.0
+    else:
+        return 5.0
 
 
 def _check_extra_drop_exception(coin, last_price, last_trading, extra_drop_threshold):
@@ -1804,6 +1850,18 @@ def _buy_upbit_coins():
     coins = filtered_coins
     coin_amounts = get_coin_amounts(coins)
 
+    if coin_amounts is None:
+        logging.warning("Amount map is empty or invalid, skipping auto-buy")
+        return
+
+    if not coin_amounts:
+        logging.info("No coins in amount map, skipping auto-buy")
+        return
+
+    missing_coins = set(coins) - set(coin_amounts.keys())
+    if missing_coins:
+        logging.warning(f"Coins missing from amount map (skipped): {missing_coins}")
+
     # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
     required_krw = sum(coin_amounts.values())
     logging.info(f"{required_krw=:,} {krw_value=:,.0f}")
@@ -1812,6 +1870,7 @@ def _buy_upbit_coins():
 
     today = timezone.localdate()
     extra_drop_threshold = constance.config.UPBIT_ATH_EXTRA_DROP_PCT
+    ath_map = _parse_ath_map()
 
     # 코인 구매
     for coin, amount in coin_amounts.items():
@@ -1834,11 +1893,19 @@ def _buy_upbit_coins():
             avg_buy_price = Decimal(str(coin_balance["avg_buy_price"]))
             current_price = Decimal(str(coin_balance["current_price"]))
 
-            # 2% 이상 하락했는지 확인
+            if ath_map and coin in ath_map:
+                ath_price = Decimal(str(ath_map[coin]))
+                drawdown_pct = float((ath_price - current_price) / ath_price * 100)
+                threshold = _get_tiered_threshold(drawdown_pct)
+            else:
+                drawdown_pct = None
+                threshold = 1.0
+
             price_change = (current_price - avg_buy_price) / avg_buy_price * 100
-            should_buy = price_change <= -2
+            should_buy = price_change <= -threshold
             logging.info(
-                f"{coin}: {should_buy=} {format_quantity(current_price)} <- {format_quantity(avg_buy_price)} ({price_change:.2f}%) [no trading history]"
+                f"{coin}: {should_buy=} {format_quantity(current_price)} <- {format_quantity(avg_buy_price)} ({price_change:.2f}%) "
+                f"[no trading history, drawdown={drawdown_pct:.2f}%, threshold={threshold:.1f}%]"
             )
         else:
             last_buy_price = last_trading.average_price
@@ -1847,10 +1914,18 @@ def _buy_upbit_coins():
             last_candle = upbit.get_candles(coin, count=1)[0]
             last_price = Decimal(last_candle["trade_price"])
 
-            # 마지막 매수한지 2시간 이상 지났고 2% 이상 하락했을 때만 구매
+            if ath_map and coin in ath_map:
+                ath_price = Decimal(str(ath_map[coin]))
+                drawdown_pct = float((ath_price - last_price) / ath_price * 100)
+                threshold = _get_tiered_threshold(drawdown_pct)
+            else:
+                drawdown_pct = None
+                threshold = 1.0
+
             price_change = (last_price - last_buy_price) / last_buy_price * 100
             should_buy = (
-                price_change <= -2 and last_buy_at < timezone.now() - timedelta(hours=2)
+                price_change <= -threshold
+                and last_buy_at < timezone.now() - timedelta(hours=2)
             )
 
             # 일일 매수 제한: 오늘 이미 매수했는지 확인 (추가 하락 예외 적용)
@@ -1874,7 +1949,8 @@ def _buy_upbit_coins():
                     )
 
             logging.info(
-                f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) {last_buy_at}"
+                f"{coin}: {should_buy=} {format_quantity(last_price)} <- {format_quantity(last_buy_price)} ({price_change:.2f}%) "
+                f"{last_buy_at} [drawdown={drawdown_pct:.2f}%, threshold={threshold:.1f}%]"
             )
 
         if should_buy:
@@ -1920,6 +1996,18 @@ def _buy_upbit_dca():
 
     coins = filtered_coins
     coin_amounts = get_coin_amounts(coins)
+
+    if coin_amounts is None:
+        logging.warning("Amount map is empty or invalid, skipping DCA")
+        return
+
+    if not coin_amounts:
+        logging.info("No coins in amount map, skipping DCA")
+        return
+
+    missing_coins = set(coins) - set(coin_amounts.keys())
+    if missing_coins:
+        logging.warning(f"Coins missing from amount map (skipped): {missing_coins}")
 
     # 원화 잔고가 코인 구매에 필요한 금액보다 적으면 구매 중지
     required_krw = sum(coin_amounts.values())
