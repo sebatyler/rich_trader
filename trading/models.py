@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from typing import Optional
 
 import pandas as pd
 from model_utils.models import TimeStampedModel
@@ -165,12 +166,24 @@ class Trading(TimeStampedModel):
         super().save(*args, **kwargs)
 
     @classmethod
-    def get_recent_trades_csv(cls, user: User, limit: int = 20):
-        return pd.DataFrame(
+    def get_recent_trades_csv(
+        cls, user: User, limit: int = 20, current_prices: Optional[dict] = None
+    ):
+        df = pd.DataFrame(
             cls.objects.filter(user=user, executed_qty__gt=0)
             .order_by("-id")[:limit]
             .values("coin", "side", "executed_qty", "average_executed_price", "fee", "created")
-        ).to_csv(index=False)
+        )
+
+        if current_prices is not None:
+            df["current_price"] = df["coin"].map(current_prices)
+            avg_prices = pd.to_numeric(df["average_executed_price"], errors="coerce")
+            current = pd.to_numeric(df["current_price"], errors="coerce")
+            price_diff = ((current - avg_prices) / avg_prices) * 100
+            price_diff = price_diff.where(avg_prices > 0)
+            df["price_diff_pct"] = price_diff.round(2)
+
+        return df.to_csv(index=False)
 
 
 class Portfolio(TimeStampedModel):
