@@ -657,6 +657,43 @@ def collect_crypto_data(
                 float(df_1d["close"].iloc[-1]) / float(df_1d["close"].iloc[-31]) - 1
             ) * 100
 
+        # Drawdown from 30d/90d highs and deviation from key moving averages.
+        high_30d = None
+        high_90d = None
+        drawdown_from_30d_high_pct = None
+        drawdown_from_90d_high_pct = None
+        ema20_deviation_pct = None
+        ema50_deviation_pct = None
+
+        if "high" in df_1d.columns and len(df_1d) >= 30:
+            high_30d = float(df_1d["high"].tail(30).max())
+        if "high" in df_1d.columns and len(df_1d) >= 90:
+            high_90d = float(df_1d["high"].tail(90).max())
+
+        if high_30d and crypto_price:
+            drawdown_from_30d_high_pct = round(
+                ((float(crypto_price) - high_30d) / high_30d) * 100,
+                2,
+            )
+        if high_90d and crypto_price:
+            drawdown_from_90d_high_pct = round(
+                ((float(crypto_price) - high_90d) / high_90d) * 100,
+                2,
+            )
+
+        ema20 = (ta_1d or {}).get("ema20")
+        ema50 = (ta_1d or {}).get("ema50")
+        if ema20:
+            ema20_deviation_pct = round(
+                ((float(crypto_price) - float(ema20)) / float(ema20)) * 100,
+                2,
+            )
+        if ema50:
+            ema50_deviation_pct = round(
+                ((float(crypto_price) - float(ema50)) / float(ema50)) * 100,
+                2,
+            )
+
         spread_pct = None
         if best_ask and best_bid:
             spread_pct = ((best_ask / best_bid) - 1) * 100
@@ -673,6 +710,12 @@ def collect_crypto_data(
             "target_volume_24h": float(ticker.get("target_volume") or 0),
             "ret_7d_pct": ret_7d,
             "ret_30d_pct": ret_30d,
+            "high_30d": high_30d,
+            "high_90d": high_90d,
+            "drawdown_from_30d_high_pct": drawdown_from_30d_high_pct,
+            "drawdown_from_90d_high_pct": drawdown_from_90d_high_pct,
+            "ema20_deviation_pct": ema20_deviation_pct,
+            "ema50_deviation_pct": ema50_deviation_pct,
         }
 
     # 뉴스 데이터
@@ -822,8 +865,30 @@ Recent trades in KRW in CSV
             }
         )
 
+    def _fmt_pct(value):
+        if value is None:
+            return "N/A"
+        try:
+            return f"{float(value):.2f}%"
+        except Exception:
+            return "N/A"
+
+    opportunity_lines = []
+    for data in crypto_data_list:
+        symbol = data["symbol"]
+        snapshot = data.get("input_data") or {}
+        opportunity_lines.append(
+            (
+                f"- {symbol}: dd30={_fmt_pct(snapshot.get('drawdown_from_30d_high_pct'))}, "
+                f"dd90={_fmt_pct(snapshot.get('drawdown_from_90d_high_pct'))}, "
+                f"ema20_dev={_fmt_pct(snapshot.get('ema20_deviation_pct'))}, "
+                f"ema50_dev={_fmt_pct(snapshot.get('ema50_deviation_pct'))}"
+            )
+        )
+    opportunity_snapshot = "\n".join(opportunity_lines) if opportunity_lines else "- N/A"
+
     krw_balance = int(float(balances["KRW"]["available"] or 0))
-    prompt = f"""You are a crypto trading advisor invoked hourly at :15. Perform heavy evaluation ONLY during session-slot windows (KRX/KST OPEN/MID/CLOSE and NYSE/ET OPEN/MID/CLOSE; up to 6 per day). At each slot trigger, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. You have access to:
+    prompt = f"""You are a short-term and swing crypto trading advisor invoked hourly at :15. Perform heavy evaluation ONLY during session-slot windows (KRX/KST OPEN/MID/CLOSE and NYSE/ET OPEN/MID/CLOSE; up to 6 per day). At each slot trigger, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. This account is dedicated to short-term/swing opportunities, not long-term buy-and-hold portfolio management. You have access to:
  - Market snapshot (price/spread/returns), account balances, order constraints
  - Technical indicators computed from Coinone candles (1h, 1d)
  - Minimal raw closes (1h/1d) for context only
@@ -833,6 +898,8 @@ Recent trades in KRW in CSV
  - Total coin value: {total_coin_value:,} KRW
  - Total portfolio value: {total_coin_value + krw_balance:,} KRW
  - Min trade: {trading_config.min_trade_amount:,} KRW, step: {trading_config.step_amount:,} KRW
+ - Drawdown/EMA deviation snapshot:
+{opportunity_snapshot}
 
 CRITICAL CONTEXT - EVALUATION AT THIS MOMENT:
 - Invoked hourly at :15; heavy evaluation occurs only during session-slot windows (up to 6 per day)
@@ -842,7 +909,8 @@ CRITICAL CONTEXT - EVALUATION AT THIS MOMENT:
 - You are NOT required to make trades every cycle - only recommend when opportunities are genuinely attractive
 - Use ALL provided data (prices, indicators, news, recent trades) to make informed decisions
 - Consider the cumulative impact of recent trades on your portfolio and strategy
-- Focus on maximizing long-term portfolio value, not forcing trades in every cycle
+- Focus on capturing evidence-backed short-term opportunities while preserving risk discipline
+- Do not force trades, but avoid defaulting to passive waiting when short-term opportunity signals are clear
 
 Key Rules (CRITICAL - FOLLOW EXACTLY):
 1) Trade Recommendation Count Rules:
@@ -858,12 +926,12 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Single BUY ≤ 30% of available KRW, total BUY ≤ 50% of KRW
    - Execute BUY as MARKET orders only (no limit/post-only)
    - Recommend BUY when current market conditions suggest favorable entry:
-     a) Strong upward momentum indicators (RSI, MACD, price action alignment)
-     b) Positive news/sentiment OR technical breakout confirmation
+     a) Strong upward momentum indicators (RSI, MACD, price action alignment) OR oversold rebound setup (sharp prior drop + early 1h rebound signals)
+     b) Positive news/sentiment OR technical breakout confirmation OR evidence of short-term mean reversion after oversold conditions
      c) Price is at reasonable levels (not FOMO buying at recent highs)
      d) Volume confirms genuine interest
      e) Expected price appreciation justifies fees (≥ 0.1% after 0.04% round-trip fees)
-   - Consider recent trading history: If coin was recently sold at a loss, wait for clear reversal signals before re-entering
+   - Consider recent trading history: If coin was sold recently, compare current price vs recent sell prices. Re-entry can be valid at meaningfully lower prices when short-term setup improves; be more cautious when price is at/above recent sell levels
    - If coin was bought recently, evaluate if additional buying improves position or if holding is better
 
 3) SELL Constraints (Optimal Exit Points & Risk Management):
@@ -897,9 +965,9 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Use volatility indicators (ATR) to inform position sizing decisions
 
 6) Portfolio Balance (KRW Ratio):
-   - After ALL recommended BUY/SELL are done, evaluate if KRW ratio is appropriate (target: 10%~30%)
-   - Current market conditions may justify deviations from target ratio
-   - Consider maintaining higher KRW ratio in uncertain markets for flexibility
+   - After ALL recommended BUY/SELL are done, evaluate if KRW ratio is appropriate (target: 10%~50%)
+   - If KRW ratio is above target, allow selective entries when short-term rebound opportunities are clear
+   - In extremely volatile/uncertain conditions, maintaining a higher KRW ratio is still acceptable for risk control
 
 7) Recent Trading Analysis (Learn from History):
    - Review recent trades from CSV data to inform current decisions:
@@ -1279,12 +1347,26 @@ def execute_trade(
 
 def auto_trading():
     """암호화폐 매매 프로세스를 실행합니다."""
+    return _auto_trading()
+
+
+def _auto_trading(force_run_outside_slots: bool = False):
+    """암호화폐 매매 프로세스를 실행합니다.
+
+    Args:
+        force_run_outside_slots: True면 슬롯 외 시간대에도 실행합니다.
+    """
     mt = compute_market_time(timezone.now())
     if not mt.should_run:
-        logging.info(
-            f"auto_trading: outside session-slot windows; {mt.market_time_context}"
-        )
-        return
+        if not force_run_outside_slots:
+            logging.info(
+                f"auto_trading: outside session-slot windows; {mt.market_time_context}"
+            )
+            return
+        else:
+            logging.info(
+                f"_auto_trading: forcing run outside session-slot windows; {mt.market_time_context}"
+            )
 
     market_time_context = mt.market_time_context
 
@@ -1331,7 +1413,6 @@ def auto_trading():
         )
 
         balances = coinone.get_balances()
-        recent_trades_csv = Trading.get_recent_trades_csv(user=config.user)
 
         # 해당 유저의 target_coins에 대한 데이터만 필터링하고 현재 잔고 가치 계산
         user_crypto_data = {}
@@ -1348,6 +1429,16 @@ def auto_trading():
                     data["input_data"]["current_value"] = current_value
                     total_coin_value += current_value
                 user_crypto_data[symbol] = data
+
+        current_prices = {
+            symbol: data["input_data"]["current_price"]
+            for symbol, data in user_crypto_data.items()
+            if (data.get("input_data") or {}).get("current_price") is not None
+        }
+        recent_trades_csv = Trading.get_recent_trades_csv(
+            user=config.user,
+            current_prices=current_prices,
+        )
 
         # LLM에게 추천 받기
         result, exc = [None] * 2
