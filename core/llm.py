@@ -37,7 +37,8 @@ gemini_models = [
 ] + gemini_search_models
 
 chat_deepseek = ChatDeepSeek(
-    model="deepseek-chat",
+    # model="deepseek-chat",
+    model="deepseek-reasoner",
     temperature=0,
     max_tokens=None,
     timeout=90,
