@@ -26,15 +26,13 @@ chat_anthropic = ChatAnthropic(
 # https://ai.google.dev/gemini-api/docs/models
 # https://ai.google.dev/gemini-api/docs/rate-limits
 gemini_search_models = [
+    "gemini-3-flash-preview",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
 ]
-gemini_models = [
-    "gemini-3-flash-preview",
-    "gemini-2.5-pro",
-] + gemini_search_models
+gemini_models = [] + gemini_search_models
 
 chat_deepseek = ChatDeepSeek(
     # model="deepseek-chat",
