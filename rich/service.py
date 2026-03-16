@@ -5,6 +5,8 @@ import re
 import time
 from datetime import timedelta
 from decimal import Decimal
+from decimal import ROUND_DOWN
+from decimal import ROUND_UP
 from typing import Optional
 
 import constance
@@ -56,6 +58,11 @@ from trading.models import TradingConfig
 from trading.models import UpbitTrading
 
 from .models import CryptoListing
+
+
+MARKET_LIMIT_PRICE_MIN_SPREAD_PCT = Decimal("0.2")
+MARKET_LIMIT_PRICE_MIN_EXTRA_PCT = Decimal("0.1")
+MARKET_LIMIT_PRICE_MAX_EXTRA_PCT = Decimal("0.3")
 
 
 def _safe_filename_slug(text: str, max_len: int = 80) -> str:
@@ -1224,6 +1231,68 @@ Use simple text format without special characters. Focus on clear numerical valu
     return invoke_llm(prompt, all_data, with_anthropic=True, **kwargs)
 
 
+def _decimal_to_number(value: Decimal) -> int | float:
+    if value == value.to_integral_value():
+        return int(value)
+    return float(value)
+
+
+def _round_price_to_unit(price: Decimal, unit: Decimal, rounding) -> Decimal:
+    if unit <= 0:
+        return price
+    return (price / unit).to_integral_value(rounding=rounding) * unit
+
+
+def _compute_market_order_limit_price(
+    action: str,
+    snapshot: dict,
+    market: Optional[dict] = None,
+) -> Optional[int | float]:
+    """Add a light slippage guard to market orders only when spreads widen."""
+    market = market or {}
+    try:
+        spread_pct = Decimal(str(snapshot.get("spread_pct")))
+        best_ask = Decimal(str(snapshot.get("best_ask")))
+        best_bid = Decimal(str(snapshot.get("best_bid")))
+        price_unit = Decimal(str(market.get("price_unit")))
+    except Exception:
+        return None
+
+    if (
+        spread_pct < MARKET_LIMIT_PRICE_MIN_SPREAD_PCT
+        or best_ask <= 0
+        or best_bid <= 0
+        or price_unit <= 0
+    ):
+        return None
+
+    extra_pct = spread_pct / Decimal("2")
+    extra_pct = max(
+        MARKET_LIMIT_PRICE_MIN_EXTRA_PCT,
+        min(MARKET_LIMIT_PRICE_MAX_EXTRA_PCT, extra_pct),
+    )
+
+    if action == "BUY":
+        raw_price = best_ask * (Decimal("1") + (extra_pct / Decimal("100")))
+        rounded_price = _round_price_to_unit(raw_price, price_unit, ROUND_UP)
+        rounded_price = max(rounded_price, best_ask)
+    elif action == "SELL":
+        raw_price = best_bid * (Decimal("1") - (extra_pct / Decimal("100")))
+        rounded_price = _round_price_to_unit(raw_price, price_unit, ROUND_DOWN)
+        rounded_price = min(rounded_price, best_bid)
+    else:
+        return None
+
+    min_price_raw = market.get("min_price")
+    max_price_raw = market.get("max_price")
+    if min_price_raw is not None:
+        rounded_price = max(rounded_price, Decimal(str(min_price_raw)))
+    if max_price_raw is not None:
+        rounded_price = min(rounded_price, Decimal(str(max_price_raw)))
+
+    return _decimal_to_number(rounded_price)
+
+
 def send_trade_result(trading: Trading, balances: dict, chat_id: str):
     """거래 결과를 확인하고 텔레그램 메시지를 전송합니다."""
     symbol = trading.coin
@@ -1296,14 +1365,36 @@ def process_trade(
 
 
 def execute_trade(
-    user, recommendation: Recommendation, crypto_data: dict, chat_id: str
+    user,
+    recommendation: Recommendation,
+    crypto_data: dict,
+    chat_id: str,
+    market: Optional[dict] = None,
 ) -> dict:
     """거래를 실행하고 결과를 처리합니다."""
     action = recommendation.action
     symbol = recommendation.symbol
     crypto_price = crypto_data["input_data"]["current_price"]
+    snapshot = (crypto_data or {}).get("input_data") or {}
+    effective_limit_price = recommendation.limit_price
+
+    computed_limit_price = _compute_market_order_limit_price(
+        action=action,
+        snapshot=snapshot,
+        market=market,
+    )
+    if computed_limit_price is not None:
+        effective_limit_price = computed_limit_price
 
     logging.info(f"{recommendation=}")
+    if effective_limit_price is not None:
+        logging.info(
+            "Applying Coinone market limit guard: symbol=%s action=%s limit_price=%s spread_pct=%s",
+            symbol,
+            action,
+            effective_limit_price,
+            snapshot.get("spread_pct"),
+        )
 
     if settings.DEBUG:
         return
@@ -1313,14 +1404,17 @@ def execute_trade(
         if not amount:
             raise ValueError("amount is required for buy order")
 
-        order = coinone.buy_ticker(symbol, amount)
+        order = coinone.buy_ticker(symbol, amount, limit_price=effective_limit_price)
     elif action == "SELL":
         quantity = recommendation.quantity
-        limit_price = recommendation.limit_price
         if not quantity:
             raise ValueError("quantity is required for sell order")
 
-        order = coinone.sell_ticker(symbol, quantity, limit_price)
+        order = coinone.sell_ticker(
+            symbol,
+            quantity,
+            limit_price=effective_limit_price,
+        )
     else:
         raise ValueError(f"Invalid action: {action}")
 
@@ -1337,7 +1431,7 @@ def execute_trade(
         symbol=symbol,
         amount=recommendation.amount,
         quantity=recommendation.quantity,
-        limit_price=recommendation.limit_price,
+        limit_price=effective_limit_price,
         crypto_price=crypto_price,
         order_detail=order_detail,
         chat_id=chat_id,
@@ -1530,6 +1624,7 @@ def _auto_trading(force_run_outside_slots: bool = False):
                     recommendation=recommendation,
                     crypto_data=crypto_data,
                     chat_id=chat_id,
+                    market=markets.get(symbol, {}),
                 )
             except Exception as e:
                 logging.exception(f"Error executing trade for {symbol}: {e}")
