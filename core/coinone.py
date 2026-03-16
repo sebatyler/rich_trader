@@ -90,18 +90,18 @@ def _order(ticker, side, amount=None, quantity=None, limit_price=None) -> OrderR
 
         payload["qty"] = quantity
 
-    # if limit_price:
-    #     payload["limit_price"] = limit_price
+    if limit_price is not None:
+        payload["limit_price"] = limit_price
 
     data = get_response(action="/v2.1/order", payload=payload)
     return OrderResponse(**data)
 
 
-def buy_ticker(ticker, amount_krw) -> OrderResponse:
-    return _order(ticker, "BUY", amount=amount_krw)
+def buy_ticker(ticker, amount_krw, limit_price=None) -> OrderResponse:
+    return _order(ticker, "BUY", amount=amount_krw, limit_price=limit_price)
 
 
-def sell_ticker(ticker, quantity, limit_price) -> OrderResponse:
+def sell_ticker(ticker, quantity, limit_price=None) -> OrderResponse:
     return _order(ticker, "SELL", quantity=quantity, limit_price=limit_price)
 
 
