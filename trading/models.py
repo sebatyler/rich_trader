@@ -424,8 +424,6 @@ class AlgorithmParameter(TimeStampedModel):
 
 
 class BybitMechanicalParameter(TimeStampedModel):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
-
     review_lookback_hours = models.PositiveSmallIntegerField(
         default=24,
         choices=[(24, "24시간"), (72, "3일"), (168, "7일")],
@@ -490,11 +488,10 @@ class BybitMechanicalParameter(TimeStampedModel):
         ordering = ["-created"]
 
     def __str__(self):
-        return f"BybitParam({self.user.username}) @ {self.created.strftime('%Y-%m-%d %H:%M')}"
+        return f"BybitParam @ {self.created.strftime('%Y-%m-%d %H:%M')}"
 
 
 class BybitMechanicalTrade(TimeStampedModel):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     symbol = models.CharField(max_length=20, default="BTCUSDT")
 
     side = models.CharField(

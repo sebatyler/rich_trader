@@ -2822,7 +2822,6 @@ class BybitMechanicalTrader:
         position_size = self._calculate_position_size(leverage)
 
         trade = BybitMechanicalTrade.objects.create(
-            user=self.params.user,
             symbol=self.symbol,
             side=signal.action,
             entry_price=Decimal(str(signal.indicators["close"])),
@@ -3237,7 +3236,6 @@ Respond in JSON format:
         }
 
         new_params = BybitMechanicalParameter.objects.create(
-            user=current.user,
             review_lookback_hours=current.review_lookback_hours,
             llm_reasoning=suggestion.reasoning,
             **new_values,
