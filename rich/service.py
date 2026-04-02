@@ -892,7 +892,9 @@ Recent trades in KRW in CSV
                 f"ema50_dev={_fmt_pct(snapshot.get('ema50_deviation_pct'))}"
             )
         )
-    opportunity_snapshot = "\n".join(opportunity_lines) if opportunity_lines else "- N/A"
+    opportunity_snapshot = (
+        "\n".join(opportunity_lines) if opportunity_lines else "- N/A"
+    )
 
     krw_balance = int(float(balances["KRW"]["available"] or 0))
     prompt = f"""You are a short-term and swing crypto trading advisor invoked hourly at :15. Perform heavy evaluation ONLY during session-slot windows (KRX/KST OPEN/MID/CLOSE and NYSE/ET OPEN/MID/CLOSE; up to 6 per day). At each slot trigger, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. This account is dedicated to short-term/swing opportunities, not long-term buy-and-hold portfolio management. You have access to:
@@ -2837,6 +2839,7 @@ class BybitMechanicalTrader:
             )
         else:
             logging.info(f"[LIVE] Entry executed: {trade}")
+            self._notify_entry(trade, signal)
 
         return trade
 
@@ -2917,6 +2920,9 @@ class BybitMechanicalTrader:
             f"@{exit_price:.2f} PnL:{pnl_pct:.2f}% (${pnl_usd:.2f})"
         )
 
+        if not self.paper_mode:
+            self._notify_exit(trade, exit_price, reason)
+
     def _get_current_price(self):
         try:
             rows = bybit.get_kline(
@@ -2927,6 +2933,57 @@ class BybitMechanicalTrader:
         except Exception as e:
             logging.error(f"Failed to get current price: {e}")
         return None
+
+    def _notify_entry(self, trade, signal):
+        try:
+            config = TradingConfig.objects.filter(bybit_alert_enabled=True).first()
+            if not config:
+                return
+
+            lines = [
+                f"🔔 Bybit {trade.side} 진입",
+                f"- 심볼: {trade.symbol}",
+                f"- 진입가: ${float(trade.entry_price):,.2f}",
+                f"- 레버리지: {trade.leverage}x",
+                f"- 포지션 크기: ${float(trade.position_size_usd):.2f}",
+                f"- RSI: {signal.indicators.get('rsi', 0):.1f}",
+                f"- MACD hist: {signal.indicators.get('macd_hist', 0):.4f}",
+                f"- ADX: {signal.indicators.get('adx', 0):.1f}",
+                f"- 손절: ${float(trade.entry_price) * (1 - self.params.stop_loss_pct):,.2f}",
+                f"- 익절: ${float(trade.entry_price) * (1 + self.params.take_profit_pct):,.2f}",
+            ]
+
+            send_message("\n".join(lines), chat_id=config.telegram_chat_id)
+        except Exception as e:
+            logging.error(f"Failed to send entry notification: {e}")
+
+    def _notify_exit(self, trade, exit_price, reason):
+        try:
+            config = TradingConfig.objects.filter(bybit_alert_enabled=True).first()
+            if not config:
+                return
+
+            reason_map = {
+                "SL": "손절",
+                "TP": "익절",
+                "SIGNAL": "신호반전",
+                "MANUAL": "수동",
+            }
+            reason_text = reason_map.get(reason, reason)
+            emoji = "🔴" if reason == "SL" else "🟢"
+
+            lines = [
+                f"{emoji} Bybit {trade.side} 청산 ({reason_text})",
+                f"- 심볼: {trade.symbol}",
+                f"- 진입가: ${float(trade.entry_price):,.2f}",
+                f"- 청산가: ${exit_price:,.2f}",
+                f"- PnL: {trade.pnl_pct:.2f}% (${float(trade.pnl_usd):.2f})",
+                f"- 레버리지: {trade.leverage}x",
+            ]
+
+            send_message("\n".join(lines), chat_id=config.telegram_chat_id)
+        except Exception as e:
+            logging.error(f"Failed to send exit notification: {e}")
 
     def _log_status(self):
         open_count = BybitMechanicalTrade.objects.filter(
