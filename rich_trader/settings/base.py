@@ -209,6 +209,12 @@ if ENV != "test":
 
 CRONJOBS = [
     ("*/5 * * * *", "rich.service.buy_upbit_coins", ">> /tmp/buy_upbit_coins.log 2>&1"),
+    (
+        "*/5 * * * *",
+        "rich.service.run_bybit_mechanical_trading",
+        ">> /tmp/bybit_mechanical.log 2>&1",
+    ),
+    ("30 0 * * *", "rich.service.bybit_daily_review", ">> /tmp/bybit_review.log 2>&1"),
 ]
 CRONTAB_COMMAND_PREFIX = "USE_DB_URL=1"
 CRONTAB_DJANGO_SETTINGS_MODULE = "rich_trader.settings.prod"
