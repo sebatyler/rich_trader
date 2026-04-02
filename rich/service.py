@@ -3121,38 +3121,38 @@ class BybitDailyReviewer:
 
         current = self.params
 
-        prompt = f"""당신은 암호화폐 트레이딩 전문가입니다. Bybit mechanical 트레이딩 시스템의 성과를 리뷰하고 파라미터 조정이 필요한지 판단해주세요.
+        prompt = f"""You are a cryptocurrency trading performance analyst. Review the Bybit mechanical trading system's performance and determine whether parameter adjustments are needed.
 
-[성과 요약 - 최근 {lookback_hours}시간]
-- 총 거래: {performance["total_trades"]}건 (롱: {performance["long_trades"]}, 숏: {performance["short_trades"]})
-- 승률: {performance["win_rate"]:.1f}%
+[Performance Summary - Last {lookback_hours} hours]
+- Total trades: {performance["total_trades"]} (Long: {performance["long_trades"]}, Short: {performance["short_trades"]})
+- Win rate: {performance["win_rate"]:.1f}%
 - Profit Factor: {performance["profit_factor"]:.2f}
-- 총 손익: ${performance["total_pnl"]:.2f}
-- 평균 수익: {performance["avg_win"]:.2f}%
-- 평균 손실: -{performance["avg_loss"]:.2f}%
-- 최대 낙폭: {performance["max_drawdown"]:.2f}%
-- 미청산 포지션: {performance["open_positions"]}개
+- Total PnL: ${performance["total_pnl"]:.2f}
+- Average win: {performance["avg_win"]:.2f}%
+- Average loss: -{performance["avg_loss"]:.2f}%
+- Max drawdown: {performance["max_drawdown"]:.2f}%
+- Open positions: {performance["open_positions"]}
 
-[현재 파라미터]
-- RSI 임계값: 매수 {current.rsi_buy_threshold}, 매도 {current.rsi_sell_threshold}
-- MACD 최소: {current.macd_min_histogram}
-- 진입 최소점수: {current.min_score_for_entry}
-- 점수차이 최소: {current.min_score_gap}
+[Current Parameters]
+- RSI thresholds: Buy {current.rsi_buy_threshold}, Sell {current.rsi_sell_threshold}
+- MACD min histogram: {current.macd_min_histogram}
+- Min entry score: {current.min_score_for_entry}
+- Min score gap: {current.min_score_gap}
 - SL/TP: {current.stop_loss_pct * 100:.1f}% / {current.take_profit_pct * 100:.1f}%
-- 포지션 크기: 계좌의 {current.position_size_pct * 100:.1f}%
-- 레버리지: {current.base_leverage}x (최대 {current.max_leverage}x)
-- 일일 최대거래: {current.daily_max_trades}건
+- Position size: {current.position_size_pct * 100:.1f}% of account
+- Leverage: {current.base_leverage}x (max {current.max_leverage}x)
+- Daily max trades: {current.daily_max_trades}
 
-[판단 기준]
-- 승률 < 40% 또는 PF < 1.2: 파라미터 조정 필요
-- 연속 손실 3회 이상: 진입 조건 강화
-- 승률 > 60% AND PF > 2.0: 파라미터 유지 또는 완화 검토
+[Decision Criteria]
+- Win rate < 40% OR Profit Factor < 1.2: Parameter adjustment needed
+- 3+ consecutive losses: Tighten entry conditions
+- Win rate > 60% AND Profit Factor > 2.0: Consider maintaining or relaxing parameters
 
-다음을 JSON 형식으로 응답해주세요:
-1. should_adjust: 파라미터 조정이 필요한가? (true/false)
-2. reasoning: 상세한 분석과 판단 근거 (한국어)
-3. suggested_changes: 변경 제안 (변경된 값만 포함, 예: {{"rsi_buy_threshold": 30}})
-4. expected_improvement: 예상되는 개선 효과 (한국어)"""
+Respond in JSON format:
+1. should_adjust: true/false
+2. reasoning: Detailed analysis and rationale (write in Korean)
+3. suggested_changes: Only changed parameter values (e.g. {{"rsi_buy_threshold": 30}})
+4. expected_improvement: Expected improvement effect (write in Korean)"""
 
         try:
             from pydantic import BaseModel, Field
