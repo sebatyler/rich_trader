@@ -242,7 +242,6 @@ class BybitMechanicalTradeAdmin(ModelAdmin):
 class BybitMechanicalParameterAdmin(ModelAdmin):
     list_display = (
         "id",
-        "user",
         "review_lookback_hours",
         "rsi_buy_threshold",
         "rsi_sell_threshold",
@@ -252,7 +251,7 @@ class BybitMechanicalParameterAdmin(ModelAdmin):
         "position_size_pct",
         "created",
     )
-    list_filter = ("user", "review_lookback_hours", "base_leverage")
-    search_fields = ("user__username",)
-    list_display_links = ("id", "user")
+    list_filter = ("review_lookback_hours", "base_leverage")
+    search_fields = ("id",)
+    list_display_links = ("id",)
     readonly_fields = ("created", "modified")
