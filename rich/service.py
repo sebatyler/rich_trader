@@ -52,6 +52,8 @@ from core.utils import format_quantity
 from trading.models import AlgorithmParameter
 from trading.models import AutoTrading
 from trading.models import BybitMechanicalParameter
+from trading.models import BybitMechanicalSignal
+from trading.models import BybitMechanicalTrade
 from trading.models import BybitSignal
 from trading.models import Portfolio
 from trading.models import Trading
