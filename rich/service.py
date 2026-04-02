@@ -2673,6 +2673,8 @@ class BybitMechanicalTrader:
             f"RSI:{indicators['rsi']:.1f} MACD:{indicators['macd_hist']:.4f} ADX:{indicators['adx']:.1f}"
         )
 
+        self._save_signal(indicators, score_long, score_short, action)
+
         return BybitSignalData(
             action=action,
             score_long=score_long,
@@ -3001,6 +3003,26 @@ class BybitMechanicalTrader:
             closed_at__date=timezone.now().date(),
         )
         return sum(t.pnl_usd or 0 for t in today_trades)
+
+    def _save_signal(self, indicators, score_long, score_short, action):
+        BybitMechanicalSignal.objects.create(
+            symbol=self.symbol,
+            timeframe="5m",
+            candle_time=timezone.now(),
+            close_price=indicators.get("close", 0),
+            rsi=indicators.get("rsi"),
+            macd=indicators.get("macd"),
+            macd_hist=indicators.get("macd_hist"),
+            ema20=indicators.get("ema20"),
+            ema50=indicators.get("ema50"),
+            volume=indicators.get("volume"),
+            volume_ma20=indicators.get("volume_ma20"),
+            atr=indicators.get("atr"),
+            adx=indicators.get("adx"),
+            score_long=score_long,
+            score_short=score_short,
+            action=action,
+        )
 
 
 class BybitSignalData:

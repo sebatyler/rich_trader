@@ -98,38 +98,92 @@ class Trading(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     order_id = models.CharField(max_length=255)
     coin = models.CharField(max_length=255)
-    amount = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True, help_text="주문 금액 (KRW)")
-    quantity = models.DecimalField(max_digits=17, decimal_places=8, null=True, blank=True, help_text="주문 수량 (코인)")
+    amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text="주문 금액 (KRW)",
+    )
+    quantity = models.DecimalField(
+        max_digits=17,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text="주문 수량 (코인)",
+    )
     limit_price = models.DecimalField(
-        max_digits=20, decimal_places=0, null=True, blank=True, help_text="주문 제한가 (KRW)"
+        max_digits=20,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text="주문 제한가 (KRW)",
     )
     reason = models.TextField(null=True, blank=True, help_text="주문 사유")
 
     type = models.CharField(max_length=20, help_text="주문 유형 (예: MARKET)")
     side = models.CharField(max_length=10, help_text="BUY/SELL")
     status = models.CharField(max_length=50)
-    fee = models.DecimalField(max_digits=20, decimal_places=0, help_text="거래 수수료 (KRW)")
-    price = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True, help_text="주문 가격 (KRW)")
-    fee_rate = models.DecimalField(max_digits=5, decimal_places=4, null=True, blank=True, help_text="수수료율 (%)")
+    fee = models.DecimalField(
+        max_digits=20, decimal_places=0, help_text="거래 수수료 (KRW)"
+    )
+    price = models.DecimalField(
+        max_digits=20,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text="주문 가격 (KRW)",
+    )
+    fee_rate = models.DecimalField(
+        max_digits=5, decimal_places=4, null=True, blank=True, help_text="수수료율 (%)"
+    )
     average_executed_price = models.DecimalField(
-        max_digits=20, decimal_places=0, null=True, blank=True, help_text="평균 체결 가격 (KRW)"
+        max_digits=20,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text="평균 체결 가격 (KRW)",
     )
     average_fee_rate = models.DecimalField(
-        max_digits=5, decimal_places=4, null=True, blank=True, help_text="평균 수수료율 (%)"
+        max_digits=5,
+        decimal_places=4,
+        null=True,
+        blank=True,
+        help_text="평균 수수료율 (%)",
     )
     original_qty = models.DecimalField(
-        max_digits=17, decimal_places=8, null=True, blank=True, help_text="최초 주문 수량 (코인)"
+        max_digits=17,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text="최초 주문 수량 (코인)",
     )
     executed_qty = models.DecimalField(
-        max_digits=17, decimal_places=8, null=True, blank=True, help_text="체결된 수량 (코인)"
+        max_digits=17,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text="체결된 수량 (코인)",
     )
     canceled_qty = models.DecimalField(
-        max_digits=17, decimal_places=8, null=True, blank=True, help_text="취소된 수량 (코인)"
+        max_digits=17,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text="취소된 수량 (코인)",
     )
-    traded_amount = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True, help_text="체결된 총액")
-    original_amount = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True, help_text="주문 총액")
+    traded_amount = models.DecimalField(
+        max_digits=20, decimal_places=0, null=True, blank=True, help_text="체결된 총액"
+    )
+    original_amount = models.DecimalField(
+        max_digits=20, decimal_places=0, null=True, blank=True, help_text="주문 총액"
+    )
     canceled_amount = models.DecimalField(
-        max_digits=20, decimal_places=0, blank=True, null=True, help_text="주문 취소 총액"
+        max_digits=20,
+        decimal_places=0,
+        blank=True,
+        null=True,
+        help_text="주문 취소 총액",
     )
 
     order_detail = models.JSONField(default=dict)
@@ -172,7 +226,14 @@ class Trading(TimeStampedModel):
         df = pd.DataFrame(
             cls.objects.filter(user=user, executed_qty__gt=0)
             .order_by("-id")[:limit]
-            .values("coin", "side", "executed_qty", "average_executed_price", "fee", "created")
+            .values(
+                "coin",
+                "side",
+                "executed_qty",
+                "average_executed_price",
+                "fee",
+                "created",
+            )
         )
 
         if current_prices is not None:
@@ -188,9 +249,13 @@ class Trading(TimeStampedModel):
 
 class Portfolio(TimeStampedModel):
     exchange = choice_field(ExchangeChoices, default=ExchangeChoices.COINONE)
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True
+    )
     balances = models.JSONField(default=list)
-    total_portfolio_value = models.PositiveBigIntegerField(help_text="총 포트폴리오 가치 (KRW)")
+    total_portfolio_value = models.PositiveBigIntegerField(
+        help_text="총 포트폴리오 가치 (KRW)"
+    )
     krw_balance = models.PositiveBigIntegerField(help_text="KRW 잔액 (KRW)")
     total_coin_value = models.PositiveBigIntegerField(help_text="총 코인 가치 (KRW)")
 
@@ -227,16 +292,28 @@ class Portfolio(TimeStampedModel):
 
 class UpbitTrading(TimeStampedModel):
     coin = models.CharField(max_length=20)
-    amount = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True, help_text="주문 금액 (KRW)")
+    amount = models.DecimalField(
+        max_digits=20,
+        decimal_places=0,
+        null=True,
+        blank=True,
+        help_text="주문 금액 (KRW)",
+    )
     is_dca = models.BooleanField(default=False, help_text="DCA 여부")
     uuid = models.CharField(max_length=100)
     state = models.CharField(max_length=20)
-    paid_fee = models.DecimalField(max_digits=20, decimal_places=0, null=True, blank=True, help_text="수수료 (KRW)")
+    paid_fee = models.DecimalField(
+        max_digits=20, decimal_places=0, null=True, blank=True, help_text="수수료 (KRW)"
+    )
     executed_volume = models.DecimalField(
         max_digits=17, decimal_places=8, null=True, blank=True, help_text="체결된 수량"
     )
     average_price = models.DecimalField(
-        max_digits=17, decimal_places=8, null=True, blank=True, help_text="체결된 평균 가격"
+        max_digits=17,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text="체결된 평균 가격",
     )
 
     order_detail = models.JSONField(default=dict)
@@ -282,7 +359,9 @@ class BybitSignal(TimeStampedModel):
 
     # decision
     trade_signal = models.BooleanField(default=False)
-    side = models.CharField(max_length=10, null=True, blank=True, help_text="LONG or SHORT")
+    side = models.CharField(
+        max_length=10, null=True, blank=True, help_text="LONG or SHORT"
+    )
     confidence = models.FloatField(null=True, blank=True)
     entry_price = models.FloatField(null=True, blank=True)
     stop_loss = models.FloatField(null=True, blank=True)
@@ -307,10 +386,17 @@ class BybitSignal(TimeStampedModel):
 class AlgorithmParameter(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     reasoning = models.TextField(null=True, blank=True)
-    rsi_period = models.PositiveSmallIntegerField(default=14, help_text="RSI 계산에 사용되는 기간")
-    bollinger_period = models.PositiveSmallIntegerField(default=20, help_text="Bollinger 밴드 계산에 사용되는 기간")
+    rsi_period = models.PositiveSmallIntegerField(
+        default=14, help_text="RSI 계산에 사용되는 기간"
+    )
+    bollinger_period = models.PositiveSmallIntegerField(
+        default=20, help_text="Bollinger 밴드 계산에 사용되는 기간"
+    )
     bollinger_std = models.DecimalField(
-        max_digits=4, decimal_places=2, default=2.00, help_text="Bollinger 밴드 계산에 사용되는 표준편차 배수"
+        max_digits=4,
+        decimal_places=2,
+        default=2.00,
+        help_text="Bollinger 밴드 계산에 사용되는 표준편차 배수",
     )
     buy_rsi_threshold = models.FloatField(default=30.0, help_text="매수 RSI 임계값")
     sell_rsi_threshold = models.FloatField(default=70.0, help_text="매도 RSI 임계값")
@@ -323,10 +409,18 @@ class AlgorithmParameter(TimeStampedModel):
     max_krw_buy_ratio = models.FloatField(default=0.1, help_text="원화 매수 비율(최대)")
     buy_chunk_ratio = models.FloatField(default=0.5, help_text="분할 매수 비율 (0~1)")
     sell_chunk_ratio = models.FloatField(default=0.5, help_text="분할 매도 비율 (0~1)")
-    stop_loss_cooldown_minutes = models.PositiveIntegerField(default=60, help_text="STOP LOSS 후 재진입 쿨타임(분)")
-    max_additional_buys = models.PositiveSmallIntegerField(default=2, help_text="추가 매수(물타기) 최대 횟수")
-    add_buy_rsi_threshold = models.FloatField(default=20.0, help_text="추가 매수 허용 RSI 임계값")
-    add_buy_bollinger_band = models.FloatField(default=-1.5, help_text="추가 매수 허용 볼린저 하단 이탈 배수(σ)")
+    stop_loss_cooldown_minutes = models.PositiveIntegerField(
+        default=60, help_text="STOP LOSS 후 재진입 쿨타임(분)"
+    )
+    max_additional_buys = models.PositiveSmallIntegerField(
+        default=2, help_text="추가 매수(물타기) 최대 횟수"
+    )
+    add_buy_rsi_threshold = models.FloatField(
+        default=20.0, help_text="추가 매수 허용 RSI 임계값"
+    )
+    add_buy_bollinger_band = models.FloatField(
+        default=-1.5, help_text="추가 매수 허용 볼린저 하단 이탈 배수(σ)"
+    )
 
 
 class BybitMechanicalParameter(TimeStampedModel):
@@ -341,30 +435,54 @@ class BybitMechanicalParameter(TimeStampedModel):
         null=True, blank=True, help_text="LLM이 제안한 파라미터 변경 이유"
     )
 
-    rsi_buy_threshold = models.FloatField(default=35.0, help_text="RSI 매수 임계값 (이하)")
-    rsi_sell_threshold = models.FloatField(default=65.0, help_text="RSI 매도 임계값 (이상)")
-    macd_min_histogram = models.FloatField(default=0.0, help_text="MACD 히스토그램 최소값")
-    adx_min_threshold = models.FloatField(default=20.0, help_text="ADX 최소값 (추세 강도)")
+    rsi_buy_threshold = models.FloatField(
+        default=35.0, help_text="RSI 매수 임계값 (이하)"
+    )
+    rsi_sell_threshold = models.FloatField(
+        default=65.0, help_text="RSI 매도 임계값 (이상)"
+    )
+    macd_min_histogram = models.FloatField(
+        default=0.0, help_text="MACD 히스토그램 최소값"
+    )
+    adx_min_threshold = models.FloatField(
+        default=20.0, help_text="ADX 최소값 (추세 강도)"
+    )
 
     rsi_weight = models.FloatField(default=1.0, help_text="RSI 점수 가중치")
     macd_weight = models.FloatField(default=1.0, help_text="MACD 점수 가중치")
     ema_weight = models.FloatField(default=0.5, help_text="EMA 점수 가중치")
     volume_weight = models.FloatField(default=0.5, help_text="Volume 점수 가중치")
 
-    min_score_for_entry = models.FloatField(default=5.0, help_text="진입에 필요한 최소 점수")
+    min_score_for_entry = models.FloatField(
+        default=5.0, help_text="진입에 필요한 최소 점수"
+    )
     min_score_gap = models.FloatField(default=2.0, help_text="롱/숏 점수 차이 최소값")
 
     stop_loss_pct = models.FloatField(default=0.02, help_text="손절 퍼센트 (2%)")
     take_profit_pct = models.FloatField(default=0.04, help_text="익절 퍼센트 (4%)")
-    max_positions = models.PositiveSmallIntegerField(default=1, help_text="최대 동시 포지션 개수")
-    position_size_pct = models.FloatField(default=0.02, help_text="계좌 대비 포지션 크기 (2%)")
+    max_positions = models.PositiveSmallIntegerField(
+        default=1, help_text="최대 동시 포지션 개수"
+    )
+    position_size_pct = models.FloatField(
+        default=0.02, help_text="계좌 대비 포지션 크기 (2%)"
+    )
 
-    base_leverage = models.PositiveSmallIntegerField(default=2, help_text="기본 레버리지 (배)")
-    max_leverage = models.PositiveSmallIntegerField(default=3, help_text="최대 레버리지 (배)")
-    leverage_atr_multiplier = models.FloatField(default=1.0, help_text="ATR 기반 레버리지 조정 계수")
+    base_leverage = models.PositiveSmallIntegerField(
+        default=2, help_text="기본 레버리지 (배)"
+    )
+    max_leverage = models.PositiveSmallIntegerField(
+        default=3, help_text="최대 레버리지 (배)"
+    )
+    leverage_atr_multiplier = models.FloatField(
+        default=1.0, help_text="ATR 기반 레버리지 조정 계수"
+    )
 
-    entry_cooldown_minutes = models.PositiveIntegerField(default=15, help_text="진입 후 재진입 쿨타임(분)")
-    daily_max_trades = models.PositiveSmallIntegerField(default=10, help_text="일일 최대 거래 횟수")
+    entry_cooldown_minutes = models.PositiveIntegerField(
+        default=15, help_text="진입 후 재진입 쿨타임(분)"
+    )
+    daily_max_trades = models.PositiveSmallIntegerField(
+        default=10, help_text="일일 최대 거래 횟수"
+    )
 
     class Meta:
         verbose_name = "Bybit Mechanical Parameter"
@@ -379,12 +497,16 @@ class BybitMechanicalTrade(TimeStampedModel):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     symbol = models.CharField(max_length=20, default="BTCUSDT")
 
-    side = models.CharField(max_length=10, choices=[("LONG", "LONG"), ("SHORT", "SHORT")])
+    side = models.CharField(
+        max_length=10, choices=[("LONG", "LONG"), ("SHORT", "SHORT")]
+    )
     entry_price = models.DecimalField(max_digits=20, decimal_places=8)
     position_size_usd = models.DecimalField(max_digits=20, decimal_places=2)
     leverage = models.PositiveSmallIntegerField()
 
-    exit_price = models.DecimalField(max_digits=20, decimal_places=8, null=True, blank=True)
+    exit_price = models.DecimalField(
+        max_digits=20, decimal_places=8, null=True, blank=True
+    )
     close_reason = models.CharField(
         max_length=20,
         choices=[
@@ -396,8 +518,12 @@ class BybitMechanicalTrade(TimeStampedModel):
         null=True,
         blank=True,
     )
-    pnl_pct = models.FloatField(null=True, blank=True, help_text="수익률 (레버리지 포함)")
-    pnl_usd = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)
+    pnl_pct = models.FloatField(
+        null=True, blank=True, help_text="수익률 (레버리지 포함)"
+    )
+    pnl_usd = models.DecimalField(
+        max_digits=20, decimal_places=2, null=True, blank=True
+    )
 
     entry_rsi = models.FloatField(null=True, blank=True)
     entry_macd_hist = models.FloatField(null=True, blank=True)
@@ -416,6 +542,35 @@ class BybitMechanicalTrade(TimeStampedModel):
         return f"{self.symbol} {self.side} {status} @ {self.entry_price}"
 
 
+class BybitMechanicalSignal(TimeStampedModel):
+    symbol = models.CharField(max_length=20, default="BTCUSDT")
+    timeframe = models.CharField(max_length=10, default="5m")
+    candle_time = models.DateTimeField()
+
+    close_price = models.FloatField()
+    rsi = models.FloatField(null=True, blank=True)
+    macd = models.FloatField(null=True, blank=True)
+    macd_hist = models.FloatField(null=True, blank=True)
+    ema20 = models.FloatField(null=True, blank=True)
+    ema50 = models.FloatField(null=True, blank=True)
+    volume = models.FloatField(null=True, blank=True)
+    volume_ma20 = models.FloatField(null=True, blank=True)
+    atr = models.FloatField(null=True, blank=True)
+    adx = models.FloatField(null=True, blank=True)
+
+    score_long = models.FloatField(default=0)
+    score_short = models.FloatField(default=0)
+    action = models.CharField(max_length=10, null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created"]
+        indexes = [
+            models.Index(fields=["symbol", "candle_time"]),
+        ]
+
+    def __str__(self):
+        return f"BybitSignal({self.symbol},{self.timeframe}) action={self.action} @ {self.candle_time}"
+
 
 class AutoTrading(TimeStampedModel):
     finished_at = models.DateTimeField(null=True, blank=True)
@@ -432,7 +587,11 @@ class AutoTrading(TimeStampedModel):
     btc_profit_rate = models.FloatField(null=True, blank=True)
     krw_available = models.FloatField(null=True, blank=True)
     trading = models.ForeignKey(
-        "Trading", null=True, blank=True, on_delete=models.SET_NULL, related_name="auto_tradings"
+        "Trading",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="auto_tradings",
     )
 
     def __str__(self):
