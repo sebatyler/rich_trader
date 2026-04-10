@@ -466,10 +466,10 @@ class BybitMechanicalParameter(TimeStampedModel):
     )
 
     base_leverage = models.PositiveSmallIntegerField(
-        default=2, help_text="기본 레버리지 (배)"
+        default=5, help_text="기본 레버리지 (배)"
     )
     max_leverage = models.PositiveSmallIntegerField(
-        default=3, help_text="최대 레버리지 (배)"
+        default=5, help_text="최대 레버리지 (배)"
     )
     leverage_atr_multiplier = models.FloatField(
         default=1.0, help_text="ATR 기반 레버리지 조정 계수"
@@ -480,6 +480,37 @@ class BybitMechanicalParameter(TimeStampedModel):
     )
     daily_max_trades = models.PositiveSmallIntegerField(
         default=10, help_text="일일 최대 거래 횟수"
+    )
+
+    # Volatility breakout strategy params
+    atr_breakout_ratio = models.FloatField(
+        default=1.5,
+        help_text="ATR breakout threshold (ATR must be this many times above its average)",
+    )
+    atr_avg_period = models.PositiveSmallIntegerField(
+        default=20, help_text="ATR average period for breakout calculation"
+    )
+    volume_spike_ratio = models.FloatField(
+        default=1.5,
+        help_text="Volume must be this many times above its moving average to confirm breakout",
+    )
+    bbands_period = models.PositiveSmallIntegerField(
+        default=20, help_text="Bollinger Bands period"
+    )
+    bbands_std = models.FloatField(
+        default=2.0, help_text="Bollinger Bands standard deviation multiplier"
+    )
+    min_conditions_for_entry = models.PositiveSmallIntegerField(
+        default=3,
+        help_text="Minimum number of conditions that must be met for entry (out of 5)",
+    )
+    trailing_stop_activation_pct = models.FloatField(
+        default=0.03,
+        help_text="Activate trailing stop when profit reaches this percentage",
+    )
+    trailing_stop_step_pct = models.FloatField(
+        default=0.015,
+        help_text="Trailing stop follows price by this percentage from peak",
     )
 
     class Meta:
@@ -530,6 +561,16 @@ class BybitMechanicalTrade(TimeStampedModel):
     is_open = models.BooleanField(default=True)
     opened_at = models.DateTimeField(auto_now_add=True)
     closed_at = models.DateTimeField(null=True, blank=True)
+    trailing_stop_price = models.DecimalField(
+        max_digits=20,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text="Trailing stop price (updates as price moves in favor)",
+    )
+    trailing_stop_activated = models.BooleanField(
+        default=False, help_text="Whether trailing stop has been activated"
+    )
 
     class Meta:
         ordering = ["-created"]
@@ -553,10 +594,30 @@ class BybitMechanicalSignal(TimeStampedModel):
     volume = models.FloatField(null=True, blank=True)
     volume_ma20 = models.FloatField(null=True, blank=True)
     atr = models.FloatField(null=True, blank=True)
+    atr_avg = models.FloatField(
+        null=True, blank=True, help_text="ATR average over atr_avg_period"
+    )
     adx = models.FloatField(null=True, blank=True)
+    bb_upper = models.FloatField(
+        null=True, blank=True, help_text="Bollinger upper band"
+    )
+    bb_lower = models.FloatField(
+        null=True, blank=True, help_text="Bollinger lower band"
+    )
+    bb_position = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Price position within BB (0=lower, 100=upper, 50=mid)",
+    )
+    volume_ratio = models.FloatField(
+        null=True, blank=True, help_text="Volume / Volume MA"
+    )
 
     score_long = models.FloatField(default=0)
     score_short = models.FloatField(default=0)
+    conditions_met = models.PositiveSmallIntegerField(
+        default=0, help_text="Number of entry conditions met (out of 5)"
+    )
     action = models.CharField(max_length=10, null=True, blank=True)
 
     class Meta:

@@ -25,13 +25,18 @@ def macd(series: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
     return macd_line, signal_line, hist
 
 
-def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> pd.Series:
+def atr(
+    high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14
+) -> pd.Series:
     prev_close = close.shift(1)
-    tr = pd.concat([
-        (high - low),
-        (high - prev_close).abs(),
-        (low - prev_close).abs(),
-    ], axis=1).max(axis=1)
+    tr = pd.concat(
+        [
+            (high - low),
+            (high - prev_close).abs(),
+            (low - prev_close).abs(),
+        ],
+        axis=1,
+    ).max(axis=1)
     atr_series = tr.ewm(alpha=1 / period, adjust=False).mean()
     return atr_series
 
@@ -39,3 +44,14 @@ def atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int = 14) -> 
 def volume_ma(volume: pd.Series, period: int = 20) -> pd.Series:
     return volume.rolling(window=period, min_periods=1).mean()
 
+
+def bollinger_bands(
+    series: pd.Series,
+    period: int = 20,
+    num_std: float = 2.0,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    mid = series.rolling(window=period, min_periods=1).mean()
+    std = series.rolling(window=period, min_periods=1).std()
+    upper = mid + (std * num_std)
+    lower = mid - (std * num_std)
+    return upper, mid, lower

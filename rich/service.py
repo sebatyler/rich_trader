@@ -35,6 +35,7 @@ from core import crypto
 from core import upbit
 from core.choices import ExchangeChoices
 from core.indicators import atr as calc_atr
+from core.indicators import bollinger_bands as calc_bb
 from core.indicators import ema as calc_ema
 from core.indicators import macd as calc_macd
 from core.indicators import rsi as calc_rsi
@@ -2649,43 +2650,7 @@ class BybitMechanicalTrader:
         except Exception as e:
             logging.exception(f"Error in mechanical trading cycle: {e}")
 
-    def _generate_signal(self):
-        rows = bybit.get_kline(self.symbol, interval="5", limit=200, category="linear")
-        df = bybit.klines_to_dataframe(rows)
-        df = bybit.drop_unclosed_candle(df, interval_minutes=5)
-
-        if len(df) < 50:
-            logging.warning(f"Insufficient data: {len(df)} candles")
-            return BybitSignalData(
-                action=None, score_long=0, score_short=0, indicators={}
-            )
-
-        indicators = self._compute_indicators(df)
-        score_long, score_short = self._calculate_scores(indicators)
-
-        action = None
-        if score_long >= self.params.min_score_for_entry:
-            if (score_long - score_short) >= self.params.min_score_gap:
-                action = "LONG"
-        elif score_short >= self.params.min_score_for_entry:
-            if (score_short - score_long) >= self.params.min_score_gap:
-                action = "SHORT"
-
-        logging.info(
-            f"Signal: {action} | Long:{score_long:.1f} Short:{score_short:.1f} "
-            f"RSI:{indicators['rsi']:.1f} MACD:{indicators['macd_hist']:.4f} ADX:{indicators['adx']:.1f}"
-        )
-
-        self._save_signal(indicators, score_long, score_short, action)
-
-        return BybitSignalData(
-            action=action,
-            score_long=score_long,
-            score_short=score_short,
-            indicators=indicators,
-        )
-
-    def _compute_indicators(self, df):
+    def _generate_signal(self, df):
         close = df["close"]
         high = df["high"]
         low = df["low"]
@@ -2698,11 +2663,28 @@ class BybitMechanicalTrader:
         vma20 = calc_volume_ma(volume, period=20)
         atr14 = calc_atr(high, low, close, period=14)
         adx = self._calculate_adx(high, low, close)
+        bb_upper, bb_mid, bb_lower = calc_bb(
+            close, period=self.params.bbands_period, num_std=self.params.bbands_std
+        )
+        atr_avg_series = atr14.rolling(window=self.params.atr_avg_period).mean()
+        atr_current = float(atr14.iloc[-1])
+        atr_avg = (
+            float(atr_avg_series.iloc[-1]) if len(atr_avg_series) > 0 else atr_current
+        )
+        atr_ratio = atr_current / atr_avg if atr_avg > 0 else 1.0
 
         last = df.iloc[-1]
+        close_price = float(last["close"])
+        bb_u = float(bb_upper.iloc[-1])
+        bb_l = float(bb_lower.iloc[-1])
+        bb_m = float(bb_mid.iloc[-1])
+        bb_range = bb_u - bb_l
+        bb_position = ((close_price - bb_l) / bb_range * 100) if bb_range > 0 else 50.0
+        vol_ma = float(vma20.iloc[-1])
+        volume_ratio = float(last["volume"]) / vol_ma if vol_ma > 0 else 1.0
 
         return {
-            "close": float(last["close"]),
+            "close": close_price,
             "rsi": float(rsi_series.iloc[-1]),
             "macd": float(macd_line.iloc[-1]),
             "macd_signal": float(signal_line.iloc[-1]),
@@ -2713,9 +2695,16 @@ class BybitMechanicalTrader:
             "ema20": float(ema20.iloc[-1]),
             "ema50": float(ema50.iloc[-1]),
             "volume": float(last["volume"]),
-            "volume_ma20": float(vma20.iloc[-1]),
-            "atr": float(atr14.iloc[-1]),
+            "volume_ma20": vol_ma,
+            "volume_ratio": volume_ratio,
+            "atr": atr_current,
+            "atr_avg": atr_avg,
+            "atr_ratio": atr_ratio,
             "adx": float(adx.iloc[-1]) if adx is not None else 25.0,
+            "bb_upper": bb_u,
+            "bb_mid": bb_m,
+            "bb_lower": bb_l,
+            "bb_position": bb_position,
         }
 
     def _calculate_adx(self, high, low, close, period=14):
@@ -2744,78 +2733,151 @@ class BybitMechanicalTrader:
         except Exception:
             return None
 
-    def _calculate_scores(self, ind):
-        score_long = 0
-        score_short = 0
+    def _check_entry_conditions(self, ind):
+        p = self.params
+        conditions_long = []
+        conditions_short = []
 
-        if ind["rsi"] < self.params.rsi_buy_threshold:
-            score_long += 3 * self.params.rsi_weight
-        elif ind["rsi"] > self.params.rsi_sell_threshold:
-            score_short += 3 * self.params.rsi_weight
-
-        if ind["macd_hist"] > self.params.macd_min_histogram:
-            if ind["macd_hist"] > ind["macd_hist_prev"]:
-                score_long += 3 * self.params.macd_weight
-            else:
-                score_long += 2 * self.params.macd_weight
-        elif ind["macd_hist"] < -self.params.macd_min_histogram:
-            if ind["macd_hist"] < ind["macd_hist_prev"]:
-                score_short += 3 * self.params.macd_weight
-            else:
-                score_short += 2 * self.params.macd_weight
-
-        if ind["close"] > ind["ema20"] > ind["ema50"]:
-            score_long += 2 * self.params.ema_weight
-        elif ind["close"] < ind["ema20"] < ind["ema50"]:
-            score_short += 2 * self.params.ema_weight
-
-        if ind["volume"] > ind["volume_ma20"] * 1.2:
-            score_long += 1 * self.params.volume_weight
-            score_short += 1 * self.params.volume_weight
-
-        if ind["adx"] >= self.params.adx_min_threshold:
-            score_long *= 1.1
-            score_short *= 1.1
-
-        return score_long, score_short
-
-    def _should_enter(self, signal):
-        open_positions = BybitMechanicalTrade.objects.filter(
-            symbol=self.symbol, is_open=True
-        ).count()
-
-        if open_positions >= self.params.max_positions:
-            logging.info(
-                f"Max positions reached: {open_positions}/{self.params.max_positions}"
+        c1_volatility_breakout_long = ind["atr_ratio"] >= p.atr_breakout_ratio
+        c1_volatility_breakout_short = ind["atr_ratio"] >= p.atr_breakout_ratio
+        conditions_long.append(
+            (
+                "Volatility breakout (ATR {:.1f}x >= {:.1f}x)".format(
+                    ind["atr_ratio"], p.atr_breakout_ratio
+                ),
+                c1_volatility_breakout_long,
             )
-            return False
-
-        daily_trades = BybitMechanicalTrade.objects.filter(
-            symbol=self.symbol,
-            created__date=timezone.now().date(),
-        ).count()
-
-        if daily_trades >= self.params.daily_max_trades:
-            logging.info(
-                f"Daily max trades reached: {daily_trades}/{self.params.daily_max_trades}"
+        )
+        conditions_short.append(
+            (
+                "Volatility breakout (ATR {:.1f}x >= {:.1f}x)".format(
+                    ind["atr_ratio"], p.atr_breakout_ratio
+                ),
+                c1_volatility_breakout_short,
             )
-            return False
-
-        last_entry = (
-            BybitMechanicalTrade.objects.filter(symbol=self.symbol, is_open=True)
-            .order_by("-created")
-            .first()
         )
 
-        if last_entry:
-            elapsed = (timezone.now() - last_entry.created).total_seconds() / 60
-            if elapsed < self.params.entry_cooldown_minutes:
-                logging.info(
-                    f"Cooldown active: {elapsed:.1f}m < {self.params.entry_cooldown_minutes}m"
-                )
-                return False
+        c2_rsi_long = ind["rsi"] < p.rsi_buy_threshold
+        c2_rsi_short = ind["rsi"] > p.rsi_sell_threshold
+        conditions_long.append(
+            (
+                "RSI oversold ({:.1f} < {:.1f})".format(
+                    ind["rsi"], p.rsi_buy_threshold
+                ),
+                c2_rsi_long,
+            )
+        )
+        conditions_short.append(
+            (
+                "RSI overbought ({:.1f} > {:.1f})".format(
+                    ind["rsi"], p.rsi_sell_threshold
+                ),
+                c2_rsi_short,
+            )
+        )
 
-        return True
+        c3_trend_long = ind["close"] > ind["ema20"] and ind["ema20"] > ind["ema50"]
+        c3_trend_short = ind["close"] < ind["ema20"] and ind["ema20"] < ind["ema50"]
+        conditions_long.append(("EMA trend up (price > EMA20 > EMA50)", c3_trend_long))
+        conditions_short.append(
+            ("EMA trend down (price < EMA20 < EMA50)", c3_trend_short)
+        )
+
+        c4_momentum_long = (
+            ind["macd_hist"] > 0 and ind["macd_hist"] > ind["macd_hist_prev"]
+        )
+        c4_momentum_short = (
+            ind["macd_hist"] < 0 and ind["macd_hist"] < ind["macd_hist_prev"]
+        )
+        conditions_long.append(
+            (
+                "MACD momentum up (hist={:.2f} > 0, rising)".format(ind["macd_hist"]),
+                c4_momentum_long,
+            )
+        )
+        conditions_short.append(
+            (
+                "MACD momentum down (hist={:.2f} < 0, falling)".format(
+                    ind["macd_hist"]
+                ),
+                c4_momentum_short,
+            )
+        )
+
+        c5_volume_long = ind["volume_ratio"] >= p.volume_spike_ratio
+        c5_volume_short = ind["volume_ratio"] >= p.volume_spike_ratio
+        conditions_long.append(
+            (
+                "Volume spike ({:.1f}x >= {:.1f}x)".format(
+                    ind["volume_ratio"], p.volume_spike_ratio
+                ),
+                c5_volume_long,
+            )
+        )
+        conditions_short.append(
+            (
+                "Volume spike ({:.1f}x >= {:.1f}x)".format(
+                    ind["volume_ratio"], p.volume_spike_ratio
+                ),
+                c5_volume_short,
+            )
+        )
+
+        met_long = sum(1 for _, met in conditions_long if met)
+        met_short = sum(1 for _, met in conditions_short if met)
+
+        for label, met in conditions_long:
+            if met:
+                logging.info(f"  [LONG condition met] {label}")
+        for label, met in conditions_short:
+            if met:
+                logging.info(f"  [SHORT condition met] {label}")
+
+        return {
+            "met_long": met_long,
+            "met_short": met_short,
+            "conditions_long": conditions_long,
+            "conditions_short": conditions_short,
+        }
+
+    def _generate_signal(self):
+        rows = bybit.get_kline(self.symbol, interval="5", limit=200, category="linear")
+        df = bybit.klines_to_dataframe(rows)
+        df = bybit.drop_unclosed_candle(df, interval_minutes=5)
+
+        if len(df) < 50:
+            logging.warning(f"Insufficient data: {len(df)} candles")
+            return BybitSignalData(
+                action=None, score_long=0, score_short=0, indicators={}
+            )
+
+        indicators = self._compute_indicators(df)
+        cond = self._check_entry_conditions(indicators)
+        p = self.params
+
+        action = None
+        if cond["met_long"] >= p.min_conditions_for_entry:
+            if cond["met_long"] > cond["met_short"]:
+                action = "LONG"
+        elif cond["met_short"] >= p.min_conditions_for_entry:
+            if cond["met_short"] > cond["met_long"]:
+                action = "SHORT"
+
+        met_count = max(cond["met_long"], cond["met_short"]) if action else 0
+        logging.info(
+            f"Signal: {action or '-'} | Conditions met: LONG={cond['met_long']}/5 SHORT={cond['met_short']}/5 "
+            f"| RSI:{indicators['rsi']:.1f} MACD:{indicators['macd_hist']:.4f} ADX:{indicators['adx']:.1f} "
+            f"ATR:{indicators['atr_ratio']:.2f}x BB:{indicators['bb_position']:.0f}% Vol:{indicators['volume_ratio']:.1f}x"
+        )
+
+        self._save_signal(indicators, cond["met_long"], cond["met_short"], action)
+
+        return BybitSignalData(
+            action=action,
+            score_long=cond["met_long"],
+            score_short=cond["met_short"],
+            indicators=indicators,
+        )
 
     def _execute_entry(self, signal):
         leverage = self._calculate_leverage(signal.indicators)
@@ -2848,19 +2910,7 @@ class BybitMechanicalTrader:
         return trade
 
     def _calculate_leverage(self, indicators):
-        base = self.params.base_leverage
-        atr = indicators.get("atr", 0)
-        price = indicators.get("close", 1)
-        atr_pct = atr / price if price > 0 else 0
-
-        if atr_pct > 0.02:
-            leverage = max(1, base - 1)
-        elif atr_pct < 0.005:
-            leverage = min(self.params.max_leverage, base + 1)
-        else:
-            leverage = base
-
-        return leverage
+        return self.params.base_leverage
 
     def _calculate_position_size(self, leverage):
         account_value = 1800
@@ -2880,25 +2930,72 @@ class BybitMechanicalTrader:
             if not current_price:
                 continue
 
+            entry = float(trade.entry_price)
             exit_reason = None
+            activation_pct = self.params.trailing_stop_activation_pct
+            step_pct = self.params.trailing_stop_step_pct
 
             if trade.side == "LONG":
-                sl_price = float(trade.entry_price) * (1 - self.params.stop_loss_pct)
-                tp_price = float(trade.entry_price) * (1 + self.params.take_profit_pct)
+                sl_price = entry * (1 - self.params.stop_loss_pct)
+                tp_price = entry * (1 + self.params.take_profit_pct)
+                profit_pct = (current_price - entry) / entry
+
+                if not trade.trailing_stop_activated and profit_pct >= activation_pct:
+                    trade.trailing_stop_activated = True
+                    trade.trailing_stop_price = Decimal(
+                        str(entry * (1 + activation_pct - step_pct))
+                    )
+                    trade.save()
+                    logging.info(
+                        f"Trailing stop activated @ {trade.trailing_stop_price}"
+                    )
+
+                if trade.trailing_stop_activated and trade.trailing_stop_price:
+                    ts_price = float(trade.trailing_stop_price)
+                    new_ts = current_price * (1 - step_pct)
+                    if new_ts > ts_price:
+                        trade.trailing_stop_price = Decimal(str(new_ts))
+                        trade.save()
+                        logging.info(f"Trailing stop updated to {new_ts:.4f}")
 
                 if current_price <= sl_price:
                     exit_reason = "SL"
                 elif current_price >= tp_price:
                     exit_reason = "TP"
+                elif trade.trailing_stop_activated and trade.trailing_stop_price:
+                    if current_price <= float(trade.trailing_stop_price):
+                        exit_reason = "TS"
 
             else:
-                sl_price = float(trade.entry_price) * (1 + self.params.stop_loss_pct)
-                tp_price = float(trade.entry_price) * (1 - self.params.take_profit_pct)
+                sl_price = entry * (1 + self.params.stop_loss_pct)
+                tp_price = entry * (1 - self.params.take_profit_pct)
+                profit_pct = (entry - current_price) / entry
+
+                if not trade.trailing_stop_activated and profit_pct >= activation_pct:
+                    trade.trailing_stop_activated = True
+                    trade.trailing_stop_price = Decimal(
+                        str(entry * (1 - activation_pct + step_pct))
+                    )
+                    trade.save()
+                    logging.info(
+                        f"Trailing stop activated @ {trade.trailing_stop_price}"
+                    )
+
+                if trade.trailing_stop_activated and trade.trailing_stop_price:
+                    ts_price = float(trade.trailing_stop_price)
+                    new_ts = current_price * (1 + step_pct)
+                    if new_ts < ts_price:
+                        trade.trailing_stop_price = Decimal(str(new_ts))
+                        trade.save()
+                        logging.info(f"Trailing stop updated to {new_ts:.4f}")
 
                 if current_price >= sl_price:
                     exit_reason = "SL"
                 elif current_price <= tp_price:
                     exit_reason = "TP"
+                elif trade.trailing_stop_activated and trade.trailing_stop_price:
+                    if current_price >= float(trade.trailing_stop_price):
+                        exit_reason = "TS"
 
             if exit_reason:
                 self._execute_exit(trade, current_price, exit_reason)
@@ -3068,9 +3165,15 @@ class BybitMechanicalTrader:
             volume=indicators.get("volume"),
             volume_ma20=indicators.get("volume_ma20"),
             atr=indicators.get("atr"),
+            atr_avg=indicators.get("atr_avg"),
             adx=indicators.get("adx"),
+            bb_upper=indicators.get("bb_upper"),
+            bb_lower=indicators.get("bb_lower"),
+            bb_position=indicators.get("bb_position"),
+            volume_ratio=indicators.get("volume_ratio"),
             score_long=score_long,
             score_short=score_short,
+            conditions_met=max(score_long, score_short) if action else 0,
             action=action,
         )
 
