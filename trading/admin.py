@@ -8,6 +8,9 @@ from core.admin import ModelAdmin
 
 from .models import AlgorithmParameter
 from .models import AutoTrading
+from .models import BybitMechanicalParameter
+from .models import BybitMechanicalSignal
+from .models import BybitMechanicalTrade
 from .models import BybitSignal
 from .models import Portfolio
 from .models import Trading
@@ -180,6 +183,75 @@ class BybitSignalAdmin(ModelAdmin):
         "take_profit",
         "created",
     )
-    list_filter = ("symbol", "timeframe", "trade_signal", "side", "few_minutes_profitable")
+    list_filter = (
+        "symbol",
+        "timeframe",
+        "trade_signal",
+        "side",
+        "few_minutes_profitable",
+    )
     search_fields = ("symbol",)
     formfield_overrides = formfield_overrides
+
+
+@admin.register(BybitMechanicalSignal)
+class BybitMechanicalSignalAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "symbol",
+        "timeframe",
+        "candle_time",
+        "close_price",
+        "rsi",
+        "macd_hist",
+        "adx",
+        "score_long",
+        "score_short",
+        "action",
+        "created",
+    )
+    list_filter = ("symbol", "timeframe", "action")
+    search_fields = ("symbol",)
+    list_display_links = ("id", "symbol")
+    readonly_fields = ("created", "modified")
+
+
+@admin.register(BybitMechanicalTrade)
+class BybitMechanicalTradeAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "symbol",
+        "side",
+        "entry_price",
+        "exit_price",
+        "leverage",
+        "position_size_usd",
+        "pnl_pct",
+        "pnl_usd",
+        "close_reason",
+        "is_open",
+        "created",
+    )
+    list_filter = ("symbol", "side", "close_reason", "is_open")
+    search_fields = ("symbol",)
+    list_display_links = ("id", "symbol")
+    readonly_fields = ("created", "modified")
+
+
+@admin.register(BybitMechanicalParameter)
+class BybitMechanicalParameterAdmin(ModelAdmin):
+    list_display = (
+        "id",
+        "review_lookback_hours",
+        "rsi_buy_threshold",
+        "rsi_sell_threshold",
+        "stop_loss_pct",
+        "take_profit_pct",
+        "base_leverage",
+        "position_size_pct",
+        "created",
+    )
+    list_filter = ("review_lookback_hours", "base_leverage")
+    search_fields = ("id",)
+    list_display_links = ("id",)
+    readonly_fields = ("created", "modified")

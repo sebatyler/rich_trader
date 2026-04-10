@@ -51,6 +51,9 @@ from core.utils import format_currency
 from core.utils import format_quantity
 from trading.models import AlgorithmParameter
 from trading.models import AutoTrading
+from trading.models import BybitMechanicalParameter
+from trading.models import BybitMechanicalSignal
+from trading.models import BybitMechanicalTrade
 from trading.models import BybitSignal
 from trading.models import Portfolio
 from trading.models import Trading
@@ -892,7 +895,9 @@ Recent trades in KRW in CSV
                 f"ema50_dev={_fmt_pct(snapshot.get('ema50_deviation_pct'))}"
             )
         )
-    opportunity_snapshot = "\n".join(opportunity_lines) if opportunity_lines else "- N/A"
+    opportunity_snapshot = (
+        "\n".join(opportunity_lines) if opportunity_lines else "- N/A"
+    )
 
     krw_balance = int(float(balances["KRW"]["available"] or 0))
     prompt = f"""You are a short-term and swing crypto trading advisor invoked hourly at :15. Perform heavy evaluation ONLY during session-slot windows (KRX/KST OPEN/MID/CLOSE and NYSE/ET OPEN/MID/CLOSE; up to 6 per day). At each slot trigger, analyze the CURRENT MARKET CONDITIONS and recommend the BEST POSSIBLE TRADES based on available data. This account is dedicated to short-term/swing opportunities, not long-term buy-and-hold portfolio management. You have access to:
@@ -2578,3 +2583,730 @@ def save_portfolio_snapshot(user, balances=None):
         krw_balance=krw_balance,
         total_coin_value=btc_value,
     )
+
+
+def run_bybit_mechanical_trading(symbol="BTCUSDT", paper_mode=True):
+    trader = BybitMechanicalTrader(symbol=symbol, paper_mode=paper_mode)
+    trader.run()
+
+
+def bybit_daily_review(notify=True):
+    reviewer = BybitDailyReviewer()
+    result = reviewer.run()
+    if notify and result:
+        _send_bybit_review_notification(result)
+
+
+def _send_bybit_review_notification(result):
+    try:
+        config = TradingConfig.objects.filter(bybit_alert_enabled=True).first()
+        if not config:
+            return
+
+        lines = [
+            "📊 Bybit 일일 리뷰 완료",
+            "",
+            f"조회 기간: {result['lookback_hours']}시간",
+            f"총 거래: {result['total_trades']}건",
+            f"승률: {result['win_rate']:.1f}%",
+            f"Profit Factor: {result['profit_factor']:.2f}",
+            f"총 손익: ${result['total_pnl']:.2f}",
+            "",
+            f"파라미터 조정 필요: {'예' if result['should_adjust'] else '아니오'}",
+        ]
+
+        if result.get("reasoning"):
+            lines.extend(["", f"분석: {result['reasoning']}"])
+
+        send_message("\n".join(lines), chat_id=config.telegram_chat_id)
+    except Exception as e:
+        logging.error(f"Failed to send notification: {e}")
+
+
+class BybitMechanicalTrader:
+    def __init__(self, symbol="BTCUSDT", paper_mode=True):
+        self.symbol = symbol
+        self.paper_mode = paper_mode
+        self.params = self._load_parameters()
+
+    def _load_parameters(self):
+        params = BybitMechanicalParameter.objects.first()
+        if not params:
+            params = BybitMechanicalParameter.objects.create()
+            logging.info(f"Created default BybitMechanicalParameter (id={params.id})")
+        return params
+
+    def run(self):
+        try:
+            signal = self._generate_signal()
+
+            if signal.action and self._should_enter(signal):
+                self._execute_entry(signal)
+
+            self._check_exits()
+            self._log_status()
+
+        except Exception as e:
+            logging.exception(f"Error in mechanical trading cycle: {e}")
+
+    def _generate_signal(self):
+        rows = bybit.get_kline(self.symbol, interval="5", limit=200, category="linear")
+        df = bybit.klines_to_dataframe(rows)
+        df = bybit.drop_unclosed_candle(df, interval_minutes=5)
+
+        if len(df) < 50:
+            logging.warning(f"Insufficient data: {len(df)} candles")
+            return BybitSignalData(
+                action=None, score_long=0, score_short=0, indicators={}
+            )
+
+        indicators = self._compute_indicators(df)
+        score_long, score_short = self._calculate_scores(indicators)
+
+        action = None
+        if score_long >= self.params.min_score_for_entry:
+            if (score_long - score_short) >= self.params.min_score_gap:
+                action = "LONG"
+        elif score_short >= self.params.min_score_for_entry:
+            if (score_short - score_long) >= self.params.min_score_gap:
+                action = "SHORT"
+
+        logging.info(
+            f"Signal: {action} | Long:{score_long:.1f} Short:{score_short:.1f} "
+            f"RSI:{indicators['rsi']:.1f} MACD:{indicators['macd_hist']:.4f} ADX:{indicators['adx']:.1f}"
+        )
+
+        self._save_signal(indicators, score_long, score_short, action)
+
+        return BybitSignalData(
+            action=action,
+            score_long=score_long,
+            score_short=score_short,
+            indicators=indicators,
+        )
+
+    def _compute_indicators(self, df):
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        volume = df["volume"]
+
+        rsi_series = calc_rsi(close, period=14)
+        macd_line, signal_line, hist = calc_macd(close)
+        ema20 = calc_ema(close, span=20)
+        ema50 = calc_ema(close, span=50)
+        vma20 = calc_volume_ma(volume, period=20)
+        atr14 = calc_atr(high, low, close, period=14)
+        adx = self._calculate_adx(high, low, close)
+
+        last = df.iloc[-1]
+
+        return {
+            "close": float(last["close"]),
+            "rsi": float(rsi_series.iloc[-1]),
+            "macd": float(macd_line.iloc[-1]),
+            "macd_signal": float(signal_line.iloc[-1]),
+            "macd_hist": float(hist.iloc[-1]),
+            "macd_hist_prev": float(hist.iloc[-2])
+            if len(hist) > 1
+            else float(hist.iloc[-1]),
+            "ema20": float(ema20.iloc[-1]),
+            "ema50": float(ema50.iloc[-1]),
+            "volume": float(last["volume"]),
+            "volume_ma20": float(vma20.iloc[-1]),
+            "atr": float(atr14.iloc[-1]),
+            "adx": float(adx.iloc[-1]) if adx is not None else 25.0,
+        }
+
+    def _calculate_adx(self, high, low, close, period=14):
+        try:
+            plus_dm = high.diff()
+            minus_dm = low.diff()
+            plus_dm[plus_dm < 0] = 0
+            minus_dm[minus_dm > 0] = 0
+            minus_dm = minus_dm.abs()
+
+            tr = pd.concat(
+                [
+                    high - low,
+                    (high - close.shift(1)).abs(),
+                    (low - close.shift(1)).abs(),
+                ],
+                axis=1,
+            ).max(axis=1)
+
+            atr = tr.rolling(window=period).mean()
+            plus_di = 100 * plus_dm.rolling(window=period).mean() / atr
+            minus_di = 100 * minus_dm.rolling(window=period).mean() / atr
+            dx = (plus_di - minus_di).abs() / (plus_di + minus_di) * 100
+            adx = dx.rolling(window=period).mean()
+            return adx
+        except Exception:
+            return None
+
+    def _calculate_scores(self, ind):
+        score_long = 0
+        score_short = 0
+
+        if ind["rsi"] < self.params.rsi_buy_threshold:
+            score_long += 3 * self.params.rsi_weight
+        elif ind["rsi"] > self.params.rsi_sell_threshold:
+            score_short += 3 * self.params.rsi_weight
+
+        if ind["macd_hist"] > self.params.macd_min_histogram:
+            if ind["macd_hist"] > ind["macd_hist_prev"]:
+                score_long += 3 * self.params.macd_weight
+            else:
+                score_long += 2 * self.params.macd_weight
+        elif ind["macd_hist"] < -self.params.macd_min_histogram:
+            if ind["macd_hist"] < ind["macd_hist_prev"]:
+                score_short += 3 * self.params.macd_weight
+            else:
+                score_short += 2 * self.params.macd_weight
+
+        if ind["close"] > ind["ema20"] > ind["ema50"]:
+            score_long += 2 * self.params.ema_weight
+        elif ind["close"] < ind["ema20"] < ind["ema50"]:
+            score_short += 2 * self.params.ema_weight
+
+        if ind["volume"] > ind["volume_ma20"] * 1.2:
+            score_long += 1 * self.params.volume_weight
+            score_short += 1 * self.params.volume_weight
+
+        if ind["adx"] >= self.params.adx_min_threshold:
+            score_long *= 1.1
+            score_short *= 1.1
+
+        return score_long, score_short
+
+    def _should_enter(self, signal):
+        open_positions = BybitMechanicalTrade.objects.filter(
+            symbol=self.symbol, is_open=True
+        ).count()
+
+        if open_positions >= self.params.max_positions:
+            logging.info(
+                f"Max positions reached: {open_positions}/{self.params.max_positions}"
+            )
+            return False
+
+        daily_trades = BybitMechanicalTrade.objects.filter(
+            symbol=self.symbol,
+            created__date=timezone.now().date(),
+        ).count()
+
+        if daily_trades >= self.params.daily_max_trades:
+            logging.info(
+                f"Daily max trades reached: {daily_trades}/{self.params.daily_max_trades}"
+            )
+            return False
+
+        last_entry = (
+            BybitMechanicalTrade.objects.filter(symbol=self.symbol, is_open=True)
+            .order_by("-created")
+            .first()
+        )
+
+        if last_entry:
+            elapsed = (timezone.now() - last_entry.created).total_seconds() / 60
+            if elapsed < self.params.entry_cooldown_minutes:
+                logging.info(
+                    f"Cooldown active: {elapsed:.1f}m < {self.params.entry_cooldown_minutes}m"
+                )
+                return False
+
+        return True
+
+    def _execute_entry(self, signal):
+        leverage = self._calculate_leverage(signal.indicators)
+        position_size = self._calculate_position_size(leverage)
+
+        trade = BybitMechanicalTrade.objects.create(
+            symbol=self.symbol,
+            side=signal.action,
+            entry_price=Decimal(str(signal.indicators["close"])),
+            position_size_usd=Decimal(str(position_size)),
+            leverage=leverage,
+            entry_rsi=signal.indicators.get("rsi"),
+            entry_macd_hist=signal.indicators.get("macd_hist"),
+            entry_adx=signal.indicators.get("adx"),
+            entry_score=signal.score_long
+            if signal.action == "LONG"
+            else signal.score_short,
+            is_open=True,
+        )
+
+        if self.paper_mode:
+            logging.info(
+                f"[PAPER] {signal.action} {self.symbol} @ {signal.indicators['close']:.2f} "
+                f"Size:${position_size:.2f} Lev:{leverage}x"
+            )
+        else:
+            logging.info(f"[LIVE] Entry executed: {trade}")
+            self._notify_entry(trade, signal)
+
+        return trade
+
+    def _calculate_leverage(self, indicators):
+        base = self.params.base_leverage
+        atr = indicators.get("atr", 0)
+        price = indicators.get("close", 1)
+        atr_pct = atr / price if price > 0 else 0
+
+        if atr_pct > 0.02:
+            leverage = max(1, base - 1)
+        elif atr_pct < 0.005:
+            leverage = min(self.params.max_leverage, base + 1)
+        else:
+            leverage = base
+
+        return leverage
+
+    def _calculate_position_size(self, leverage):
+        account_value = 1800
+        risk_amount = account_value * self.params.position_size_pct
+        position_size = risk_amount * leverage
+        return round(position_size, 2)
+
+    def _check_exits(self):
+        self._sync_positions_with_bybit()
+
+        open_trades = BybitMechanicalTrade.objects.filter(
+            symbol=self.symbol, is_open=True
+        )
+
+        for trade in open_trades:
+            current_price = self._get_current_price()
+            if not current_price:
+                continue
+
+            exit_reason = None
+
+            if trade.side == "LONG":
+                sl_price = float(trade.entry_price) * (1 - self.params.stop_loss_pct)
+                tp_price = float(trade.entry_price) * (1 + self.params.take_profit_pct)
+
+                if current_price <= sl_price:
+                    exit_reason = "SL"
+                elif current_price >= tp_price:
+                    exit_reason = "TP"
+
+            else:
+                sl_price = float(trade.entry_price) * (1 + self.params.stop_loss_pct)
+                tp_price = float(trade.entry_price) * (1 - self.params.take_profit_pct)
+
+                if current_price >= sl_price:
+                    exit_reason = "SL"
+                elif current_price <= tp_price:
+                    exit_reason = "TP"
+
+            if exit_reason:
+                self._execute_exit(trade, current_price, exit_reason)
+
+    def _sync_positions_with_bybit(self):
+        try:
+            remote_positions = bybit.get_open_positions(self.symbol, category="linear")
+        except Exception as e:
+            logging.warning(f"Failed to fetch Bybit positions for sync: {e}")
+            return
+
+        remote_symbols = {
+            p["symbol"] for p in remote_positions if float(p.get("size", 0)) > 0
+        }
+
+        db_open = BybitMechanicalTrade.objects.filter(symbol=self.symbol, is_open=True)
+        for trade in db_open:
+            if trade.symbol not in remote_symbols:
+                logging.info(
+                    f"Position {trade.symbol} {trade.side} not found on Bybit. "
+                    f"Marking as closed (reason=MANUAL)."
+                )
+                trade.is_open = False
+                trade.close_reason = trade.close_reason or "MANUAL"
+                trade.closed_at = timezone.now()
+                trade.save()
+
+    def _sync_positions_with_bybit(self):
+        try:
+            remote_positions = bybit.get_open_positions(self.symbol, category="linear")
+        except Exception as e:
+            logging.warning(f"Failed to fetch Bybit positions for sync: {e}")
+            return
+
+        remote_symbols = {
+            p["symbol"] for p in remote_positions if float(p.get("size", 0)) > 0
+        }
+
+        db_open = BybitMechanicalTrade.objects.filter(symbol=self.symbol, is_open=True)
+        for trade in db_open:
+            if trade.symbol not in remote_symbols:
+                logging.info(
+                    f"Position {trade.symbol} {trade.side} not found on Bybit. "
+                    f"Marking as closed (reason=MANUAL)."
+                )
+                trade.is_open = False
+                trade.close_reason = trade.close_reason or "MANUAL"
+                trade.closed_at = timezone.now()
+                trade.save()
+
+    def _execute_exit(self, trade, exit_price, reason):
+        entry = float(trade.entry_price)
+
+        if trade.side == "LONG":
+            pnl_pct = (exit_price - entry) / entry * 100 * trade.leverage
+        else:
+            pnl_pct = (entry - exit_price) / entry * 100 * trade.leverage
+
+        pnl_usd = float(trade.position_size_usd) * pnl_pct / 100
+
+        trade.exit_price = Decimal(str(exit_price))
+        trade.close_reason = reason
+        trade.pnl_pct = pnl_pct
+        trade.pnl_usd = Decimal(str(pnl_usd))
+        trade.is_open = False
+        trade.closed_at = timezone.now()
+        trade.save()
+
+        logging.info(
+            f"[{'PAPER' if self.paper_mode else 'LIVE'}] {reason} {trade.side} "
+            f"@{exit_price:.2f} PnL:{pnl_pct:.2f}% (${pnl_usd:.2f})"
+        )
+
+        if not self.paper_mode:
+            self._notify_exit(trade, exit_price, reason)
+
+    def _get_current_price(self):
+        try:
+            rows = bybit.get_kline(
+                self.symbol, interval="1", limit=1, category="linear"
+            )
+            if rows:
+                return float(rows[0][4])
+        except Exception as e:
+            logging.error(f"Failed to get current price: {e}")
+        return None
+
+    def _notify_entry(self, trade, signal):
+        try:
+            config = TradingConfig.objects.filter(bybit_alert_enabled=True).first()
+            if not config:
+                return
+
+            lines = [
+                f"🔔 Bybit {trade.side} 진입",
+                f"- 심볼: {trade.symbol}",
+                f"- 진입가: ${float(trade.entry_price):,.2f}",
+                f"- 레버리지: {trade.leverage}x",
+                f"- 포지션 크기: ${float(trade.position_size_usd):.2f}",
+                f"- RSI: {signal.indicators.get('rsi', 0):.1f}",
+                f"- MACD hist: {signal.indicators.get('macd_hist', 0):.4f}",
+                f"- ADX: {signal.indicators.get('adx', 0):.1f}",
+                f"- 손절: ${float(trade.entry_price) * (1 - self.params.stop_loss_pct):,.2f}",
+                f"- 익절: ${float(trade.entry_price) * (1 + self.params.take_profit_pct):,.2f}",
+            ]
+
+            send_message("\n".join(lines), chat_id=config.telegram_chat_id)
+        except Exception as e:
+            logging.error(f"Failed to send entry notification: {e}")
+
+    def _notify_exit(self, trade, exit_price, reason):
+        try:
+            config = TradingConfig.objects.filter(bybit_alert_enabled=True).first()
+            if not config:
+                return
+
+            reason_map = {
+                "SL": "손절",
+                "TP": "익절",
+                "SIGNAL": "신호반전",
+                "MANUAL": "수동",
+            }
+            reason_text = reason_map.get(reason, reason)
+            emoji = "🔴" if reason == "SL" else "🟢"
+
+            lines = [
+                f"{emoji} Bybit {trade.side} 청산 ({reason_text})",
+                f"- 심볼: {trade.symbol}",
+                f"- 진입가: ${float(trade.entry_price):,.2f}",
+                f"- 청산가: ${exit_price:,.2f}",
+                f"- PnL: {trade.pnl_pct:.2f}% (${float(trade.pnl_usd):.2f})",
+                f"- 레버리지: {trade.leverage}x",
+            ]
+
+            send_message("\n".join(lines), chat_id=config.telegram_chat_id)
+        except Exception as e:
+            logging.error(f"Failed to send exit notification: {e}")
+
+    def _log_status(self):
+        open_count = BybitMechanicalTrade.objects.filter(
+            symbol=self.symbol, is_open=True
+        ).count()
+        today_pnl = self._calculate_today_pnl()
+
+        logging.info(
+            f"Status: {open_count} open positions | Today PnL: ${today_pnl:.2f}"
+        )
+
+    def _calculate_today_pnl(self):
+        today_trades = BybitMechanicalTrade.objects.filter(
+            symbol=self.symbol,
+            closed_at__date=timezone.now().date(),
+        )
+        return sum(t.pnl_usd or 0 for t in today_trades)
+
+    def _save_signal(self, indicators, score_long, score_short, action):
+        BybitMechanicalSignal.objects.create(
+            symbol=self.symbol,
+            timeframe="5m",
+            candle_time=timezone.now(),
+            close_price=indicators.get("close", 0),
+            rsi=indicators.get("rsi"),
+            macd=indicators.get("macd"),
+            macd_hist=indicators.get("macd_hist"),
+            ema20=indicators.get("ema20"),
+            ema50=indicators.get("ema50"),
+            volume=indicators.get("volume"),
+            volume_ma20=indicators.get("volume_ma20"),
+            atr=indicators.get("atr"),
+            adx=indicators.get("adx"),
+            score_long=score_long,
+            score_short=score_short,
+            action=action,
+        )
+
+
+class BybitSignalData:
+    def __init__(self, action, score_long, score_short, indicators):
+        self.action = action
+        self.score_long = score_long
+        self.score_short = score_short
+        self.indicators = indicators
+
+
+class BybitDailyReviewer:
+    def __init__(self):
+        self.params = self._load_parameters()
+
+    def _load_parameters(self):
+        params = BybitMechanicalParameter.objects.first()
+        if not params:
+            params = BybitMechanicalParameter.objects.create()
+        return params
+
+    def run(self, override_hours=None):
+        lookback_hours = override_hours or self.params.review_lookback_hours
+        since = timezone.now() - timedelta(hours=lookback_hours)
+
+        trades = BybitMechanicalTrade.objects.filter(created__gte=since)
+        performance = self._analyze_performance(trades)
+
+        suggestion = self._request_llm_review(performance, lookback_hours)
+
+        if suggestion and suggestion.should_adjust:
+            self._create_parameter_proposal(suggestion)
+
+        return {
+            "lookback_hours": lookback_hours,
+            "total_trades": performance["total_trades"],
+            "win_rate": performance["win_rate"],
+            "profit_factor": performance["profit_factor"],
+            "total_pnl": performance["total_pnl"],
+            "should_adjust": suggestion.should_adjust if suggestion else False,
+            "reasoning": suggestion.reasoning if suggestion else None,
+        }
+
+    def _analyze_performance(self, trades):
+        total_trades = trades.count()
+
+        if total_trades == 0:
+            return {
+                "total_trades": 0,
+                "win_rate": 0.0,
+                "profit_factor": 0.0,
+                "total_pnl": 0.0,
+                "avg_win": 0.0,
+                "avg_loss": 0.0,
+                "max_drawdown": 0.0,
+                "long_trades": 0,
+                "short_trades": 0,
+            }
+
+        closed_trades = trades.filter(is_open=False)
+        wins = [t for t in closed_trades if (t.pnl_pct or 0) > 0]
+        losses = [t for t in closed_trades if (t.pnl_pct or 0) <= 0]
+
+        win_count = len(wins)
+        loss_count = len(losses)
+        win_rate = (
+            win_count / (win_count + loss_count) * 100
+            if (win_count + loss_count) > 0
+            else 0.0
+        )
+
+        total_win = sum(t.pnl_pct or 0 for t in wins)
+        total_loss = abs(sum(t.pnl_pct or 0 for t in losses))
+        profit_factor = total_win / total_loss if total_loss > 0 else 0.0
+
+        total_pnl = sum(t.pnl_usd or 0 for t in closed_trades)
+        avg_win = total_win / win_count if win_count > 0 else 0.0
+        avg_loss = total_loss / loss_count if loss_count > 0 else 0.0
+        max_drawdown = self._calculate_max_drawdown(closed_trades)
+
+        long_trades = trades.filter(side="LONG").count()
+        short_trades = trades.filter(side="SHORT").count()
+
+        return {
+            "total_trades": total_trades,
+            "win_rate": win_rate,
+            "profit_factor": profit_factor,
+            "total_pnl": float(total_pnl),
+            "avg_win": avg_win,
+            "avg_loss": avg_loss,
+            "max_drawdown": max_drawdown,
+            "long_trades": long_trades,
+            "short_trades": short_trades,
+            "open_positions": trades.filter(is_open=True).count(),
+        }
+
+    def _calculate_max_drawdown(self, trades):
+        if not trades:
+            return 0.0
+
+        cumulative = 0
+        peak = 0
+        max_dd = 0
+
+        for trade in trades.order_by("created"):
+            cumulative += trade.pnl_pct or 0
+            peak = max(peak, cumulative)
+            dd = peak - cumulative
+            max_dd = max(max_dd, dd)
+
+        return max_dd
+
+    def _request_llm_review(self, performance, lookback_hours):
+        if performance["total_trades"] < 5:
+            logging.info(
+                f"Insufficient trades for review: {performance['total_trades']}"
+            )
+            return None
+
+        current = self.params
+
+        prompt = f"""You are a cryptocurrency trading performance analyst. Review the Bybit mechanical trading system's performance and determine whether parameter adjustments are needed.
+
+[Performance Summary - Last {lookback_hours} hours]
+- Total trades: {performance["total_trades"]} (Long: {performance["long_trades"]}, Short: {performance["short_trades"]})
+- Win rate: {performance["win_rate"]:.1f}%
+- Profit Factor: {performance["profit_factor"]:.2f}
+- Total PnL: ${performance["total_pnl"]:.2f}
+- Average win: {performance["avg_win"]:.2f}%
+- Average loss: -{performance["avg_loss"]:.2f}%
+- Max drawdown: {performance["max_drawdown"]:.2f}%
+- Open positions: {performance["open_positions"]}
+
+[Current Parameters]
+- RSI thresholds: Buy {current.rsi_buy_threshold}, Sell {current.rsi_sell_threshold}
+- MACD min histogram: {current.macd_min_histogram}
+- Min entry score: {current.min_score_for_entry}
+- Min score gap: {current.min_score_gap}
+- SL/TP: {current.stop_loss_pct * 100:.1f}% / {current.take_profit_pct * 100:.1f}%
+- Position size: {current.position_size_pct * 100:.1f}% of account
+- Leverage: {current.base_leverage}x (max {current.max_leverage}x)
+- Daily max trades: {current.daily_max_trades}
+
+[Decision Criteria]
+- Win rate < 40% OR Profit Factor < 1.2: Parameter adjustment needed
+- 3+ consecutive losses: Tighten entry conditions
+- Win rate > 60% AND Profit Factor > 2.0: Consider maintaining or relaxing parameters
+
+Respond in JSON format:
+1. should_adjust: true/false
+2. reasoning: Detailed analysis and rationale (write in Korean)
+3. suggested_changes: Only changed parameter values (e.g. {{"rsi_buy_threshold": 30}})
+4. expected_improvement: Expected improvement effect (write in Korean)"""
+
+        try:
+            from pydantic import BaseModel, Field
+
+            class ParameterSuggestion(BaseModel):
+                should_adjust: bool = Field(
+                    ..., description="Whether parameters should be adjusted"
+                )
+                reasoning: str = Field(..., description="Detailed reasoning in Korean")
+                suggested_changes: dict = Field(
+                    default_factory=dict, description="Specific parameter changes"
+                )
+                expected_improvement: str = Field(
+                    ..., description="Expected improvement in Korean"
+                )
+
+            result = invoke_llm(
+                "You are a trading performance analyst. Review the data and suggest parameter adjustments.",
+                prompt,
+                model=ParameterSuggestion,
+                structured_output=True,
+            )
+            logging.info(f"LLM review result: should_adjust={result.should_adjust}")
+            return result
+        except Exception as e:
+            logging.exception(f"LLM review failed: {e}")
+            return None
+
+    def _create_parameter_proposal(self, suggestion):
+        current = self.params
+
+        changes = suggestion.suggested_changes
+        fields = [
+            "rsi_buy_threshold",
+            "rsi_sell_threshold",
+            "macd_min_histogram",
+            "adx_min_threshold",
+            "rsi_weight",
+            "macd_weight",
+            "ema_weight",
+            "volume_weight",
+            "min_score_for_entry",
+            "min_score_gap",
+            "stop_loss_pct",
+            "take_profit_pct",
+            "max_positions",
+            "position_size_pct",
+            "base_leverage",
+            "max_leverage",
+            "leverage_atr_multiplier",
+            "entry_cooldown_minutes",
+            "daily_max_trades",
+        ]
+
+        new_values = {
+            field: changes.get(field, getattr(current, field)) for field in fields
+        }
+
+        new_params = BybitMechanicalParameter.objects.create(
+            review_lookback_hours=current.review_lookback_hours,
+            llm_reasoning=suggestion.reasoning,
+            **new_values,
+        )
+
+        logging.info(f"Created new parameter proposal (id={new_params.id})")
+
+        try:
+            import json
+
+            config = TradingConfig.objects.filter(bybit_alert_enabled=True).first()
+            if config:
+                changes_json = json.dumps(
+                    suggestion.suggested_changes, ensure_ascii=False, indent=2
+                )
+                send_message(
+                    f"📋 Bybit 파라미터 조정 제안\n\n{suggestion.reasoning}\n\n"
+                    f"제안된 변경:\n{changes_json}\n\n"
+                    f"예상 효과: {suggestion.expected_improvement}\n\n"
+                    f"관리자 페이지에서 적용 여부를 결정하세요.",
+                    chat_id=config.telegram_chat_id,
+                )
+        except Exception as e:
+            logging.error(f"Failed to send proposal notification: {e}")
+
+        return new_params
