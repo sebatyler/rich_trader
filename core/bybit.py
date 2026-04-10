@@ -37,7 +37,7 @@ def _get(url: str, params: dict, auth: bool = False) -> dict:
                 timestamp = str(int(time.time() * 1000))
                 query_string = "&".join(f"{k}={v}" for k, v in sorted(params.items()))
                 param_sign = (
-                    f"GET/v5/position/list{query_string}"
+                    f"GET/v5/position/list?{query_string}"
                     if query_string
                     else "GET/v5/position/list"
                 )

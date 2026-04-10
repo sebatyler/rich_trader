@@ -2733,6 +2733,62 @@ class BybitMechanicalTrader:
         except Exception:
             return None
 
+    def _compute_indicators(self, df):
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        volume = df["volume"]
+
+        rsi_series = calc_rsi(close, period=14)
+        macd_line, signal_line, hist = calc_macd(close)
+        hist_prev = hist.shift(1)
+        ema20 = calc_ema(close, span=20)
+        ema50 = calc_ema(close, span=50)
+        vma20 = calc_volume_ma(volume, period=20)
+        atr14 = calc_atr(high, low, close, period=14)
+        adx = self._calculate_adx(high, low, close)
+        bb_upper, bb_mid, bb_lower = calc_bb(
+            close, period=self.params.bbands_period, num_std=self.params.bbands_std
+        )
+        atr_avg_series = atr14.rolling(window=self.params.atr_avg_period).mean()
+        atr_current = float(atr14.iloc[-1])
+        atr_avg = (
+            float(atr_avg_series.iloc[-1]) if len(atr_avg_series) > 0 else atr_current
+        )
+        atr_ratio = atr_current / atr_avg if atr_avg > 0 else 1.0
+
+        last = df.iloc[-1]
+        close_price = float(last["close"])
+        bb_u = float(bb_upper.iloc[-1])
+        bb_l = float(bb_lower.iloc[-1])
+        bb_m = float(bb_mid.iloc[-1])
+        bb_range = bb_u - bb_l
+        bb_position = ((close_price - bb_l) / bb_range * 100) if bb_range > 0 else 50.0
+        vol_ma = float(vma20.iloc[-1])
+        volume_ratio = float(last["volume"]) / vol_ma if vol_ma > 0 else 1.0
+
+        return {
+            "close": close_price,
+            "rsi": float(rsi_series.iloc[-1]),
+            "macd": float(macd_line.iloc[-1]),
+            "macd_signal": float(signal_line.iloc[-1]),
+            "macd_hist": float(hist.iloc[-1]),
+            "macd_hist_prev": float(hist_prev.iloc[-1]),
+            "ema20": float(ema20.iloc[-1]),
+            "ema50": float(ema50.iloc[-1]),
+            "volume": float(last["volume"]),
+            "volume_ma20": vol_ma,
+            "volume_ratio": volume_ratio,
+            "atr": atr_current,
+            "atr_avg": atr_avg,
+            "atr_ratio": atr_ratio,
+            "adx": float(adx.iloc[-1]) if adx is not None else 25.0,
+            "bb_upper": bb_u,
+            "bb_mid": bb_m,
+            "bb_lower": bb_l,
+            "bb_position": bb_position,
+        }
+
     def _check_entry_conditions(self, ind):
         p = self.params
         conditions_long = []
