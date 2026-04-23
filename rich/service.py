@@ -2777,6 +2777,21 @@ class BybitMechanicalTrader:
             )
         )
 
+        c2_bb_long = ind["bb_position"] < 40
+        c2_bb_short = ind["bb_position"] > 60
+        conditions_long.append(
+            (
+                "BB position near lower ({:.0f}% < 40%)".format(ind["bb_position"]),
+                c2_bb_long,
+            )
+        )
+        conditions_short.append(
+            (
+                "BB position near upper ({:.0f}% > 60%)".format(ind["bb_position"]),
+                c2_bb_short,
+            )
+        )
+
         c3_trend_long = ind["close"] > ind["ema20"] and ind["ema20"] > ind["ema50"]
         c3_trend_short = ind["close"] < ind["ema20"] and ind["ema20"] < ind["ema50"]
         conditions_long.append(("EMA trend up (price > EMA20 > EMA50)", c3_trend_long))
@@ -2857,16 +2872,19 @@ class BybitMechanicalTrader:
         p = self.params
 
         action = None
+        score_gap = abs(cond["met_long"] - cond["met_short"])
+
         if cond["met_long"] >= p.min_conditions_for_entry:
-            if cond["met_long"] > cond["met_short"]:
+            if cond["met_long"] > cond["met_short"] and score_gap >= p.min_score_gap:
                 action = "LONG"
         elif cond["met_short"] >= p.min_conditions_for_entry:
-            if cond["met_short"] > cond["met_long"]:
+            if cond["met_short"] > cond["met_long"] and score_gap >= p.min_score_gap:
                 action = "SHORT"
 
         met_count = max(cond["met_long"], cond["met_short"]) if action else 0
         logging.info(
             f"Signal: {action or '-'} | Conditions met: LONG={cond['met_long']}/5 SHORT={cond['met_short']}/5 "
+            f"| Score gap:{score_gap:.0f}/{p.min_score_gap:.0f}"
             f"| RSI:{indicators['rsi']:.1f} MACD:{indicators['macd_hist']:.4f} ADX:{indicators['adx']:.1f} "
             f"ATR:{indicators['atr_ratio']:.2f}x BB:{indicators['bb_position']:.0f}% Vol:{indicators['volume_ratio']:.1f}x"
         )
