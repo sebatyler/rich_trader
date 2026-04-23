@@ -2930,7 +2930,8 @@ class BybitMechanicalTrader:
         return round(position_size, 2)
 
     def _check_exits(self):
-        self._sync_positions_with_bybit()
+        if not self.paper_mode:
+            self._sync_positions_with_bybit()
 
         open_trades = BybitMechanicalTrade.objects.filter(
             symbol=self.symbol, is_open=True
@@ -3010,29 +3011,6 @@ class BybitMechanicalTrader:
 
             if exit_reason:
                 self._execute_exit(trade, current_price, exit_reason)
-
-    def _sync_positions_with_bybit(self):
-        try:
-            remote_positions = bybit.get_open_positions(self.symbol, category="linear")
-        except Exception as e:
-            logging.warning(f"Failed to fetch Bybit positions for sync: {e}")
-            return
-
-        remote_symbols = {
-            p["symbol"] for p in remote_positions if float(p.get("size", 0)) > 0
-        }
-
-        db_open = BybitMechanicalTrade.objects.filter(symbol=self.symbol, is_open=True)
-        for trade in db_open:
-            if trade.symbol not in remote_symbols:
-                logging.info(
-                    f"Position {trade.symbol} {trade.side} not found on Bybit. "
-                    f"Marking as closed (reason=MANUAL)."
-                )
-                trade.is_open = False
-                trade.close_reason = trade.close_reason or "MANUAL"
-                trade.closed_at = timezone.now()
-                trade.save()
 
     def _sync_positions_with_bybit(self):
         try:
