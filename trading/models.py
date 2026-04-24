@@ -56,11 +56,16 @@ class TradingConfig(TimeStampedModel):
     min_coins = models.SmallIntegerField(
         verbose_name="최소 코인 개수",
         help_text="한 번에 추천할 최소 코인 개수 (0은 거래 추천이 없을 수 있음)",
-        default=1,
+        default=0,
     )
     max_coins = models.PositiveSmallIntegerField(
         verbose_name="최대 코인 개수",
         help_text="한 번에 추천할 최대 코인 개수",
+        default=2,
+    )
+    max_trades_per_session = models.PositiveSmallIntegerField(
+        verbose_name="세션당 최대 거래 수",
+        help_text="한 세션에서 실행할 최대 거래 수 (품질 우선을 위해 제한)",
         default=2,
     )
 
