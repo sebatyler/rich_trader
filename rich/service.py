@@ -961,11 +961,12 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Use recent trading history to avoid emotional decisions (don't sell just because you sold before)
 
 4) Fees & Profit Considerations:
-   - Fee: 0.02% each trade (0.04% round-trip = buy + sell)
-   - Consider fees when evaluating trade profitability: Price needs to move ≥ 0.1% to break even
-   - Each trade should have sufficient expected profit potential to justify fees
-   - Be aware of cumulative fees from recent trades - factor this into decision-making
-   - Avoid trades where expected profit is marginal compared to fees
+    - Fee: 0.02% each trade (0.04% round-trip = buy + sell)
+    - Consider fees when evaluating trade profitability: Price needs to move ≥ 0.5% to justify trade (covers 0.04% fees + 0.46% minimum profit)
+    - Each trade should have sufficient expected profit potential to justify fees
+    - Be aware of cumulative fees from recent trades - factor this into decision-making
+    - Avoid trades where expected profit is marginal compared to fees
+    - Prioritize higher conviction opportunities over marginal gains
 
 5) Risk & Volatility Management:
    - Avoid risking >2~3% of total portfolio on a single trade
@@ -1582,8 +1583,23 @@ def _auto_trading(force_run_outside_slots: bool = False):
 
         skipped = []
 
+        max_trades = getattr(config, "max_trades_per_session", 2)
+        recommendations_to_execute = result.recommendations[:max_trades]
+
+        if len(result.recommendations) > max_trades:
+            skipped.extend(
+                [
+                    {
+                        "symbol": rec.symbol,
+                        "action": rec.action,
+                        "reason": f"exceeds max_trades_per_session ({max_trades})",
+                    }
+                    for rec in result.recommendations[max_trades:]
+                ]
+            )
+
         # 추천받은 거래 실행
-        for recommendation in result.recommendations:
+        for recommendation in recommendations_to_execute:
             symbol = recommendation.symbol
             crypto_data = user_crypto_data[symbol]
 
