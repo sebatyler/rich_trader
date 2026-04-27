@@ -1035,7 +1035,15 @@ recommendations:
 Rules:
 1. Strictly follow the YAML structure above
 2. scratchpad and reasoning MUST use multiline string format with | operator and consistent indentation
-3. Keep total length of scratchpad + reasoning < 2000 chars
+3. CRITICAL: After the | operator, EVERY line of content MUST start with exactly 2 spaces indentation
+4. Example of CORRECT format:
+   scratchpad: |
+     First line with 2 spaces indent
+     Second line with 2 spaces indent
+5. Example of INCORRECT format (will cause parse error):
+   scratchpad: |
+   First line without indent (WRONG!)
+6. Keep total length of scratchpad + reasoning < 2000 chars
 4. Each line should be a complete, meaningful statement
 5. Use simple, clear Korean language
 6. No repetition between sections
