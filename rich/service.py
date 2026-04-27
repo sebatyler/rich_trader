@@ -2898,11 +2898,11 @@ class BybitMechanicalTrader:
         action = None
         score_gap = abs(cond["met_long"] - cond["met_short"])
 
-        if cond["met_long"] >= p.min_conditions_for_entry:
-            if cond["met_long"] > cond["met_short"] and score_gap >= p.min_score_gap:
+        if cond["met_long"] >= 4 and score_gap >= 3:
+            if cond["met_long"] > cond["met_short"]:
                 action = "LONG"
-        elif cond["met_short"] >= p.min_conditions_for_entry:
-            if cond["met_short"] > cond["met_long"] and score_gap >= p.min_score_gap:
+        elif cond["met_short"] >= 4 and score_gap >= 3:
+            if cond["met_short"] > cond["met_long"]:
                 action = "SHORT"
 
         met_count = max(cond["met_long"], cond["met_short"]) if action else 0
