@@ -13,6 +13,7 @@ from langchain.schema import SystemMessage
 from langchain_anthropic import ChatAnthropic
 from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
+from ollama import Client as OllamaClient
 
 # Initialize the LLM
 chat_anthropic = ChatAnthropic(
@@ -58,6 +59,38 @@ chat_gemini_models = [
 
 llm_primary = chat_deepseek.with_fallbacks(chat_gemini_models)
 llm_fallback = chat_gemini_models[1]
+
+ollama_client = OllamaClient(
+    host=os.getenv("OLLAMA_HOST", "https://ollama.com"),
+    headers={"Authorization": "Bearer " + (os.getenv("OLLAMA_API_KEY") or "")},
+)
+
+
+def invoke_llm_ollama(
+    prompt, *args, model=None, template_format="f-string", **kwargs
+):
+    """Invoke Ollama chat API and optionally parse YAML into a Pydantic model."""
+    messages = [{"role": "system", "content": prompt}]
+    for arg in args:
+        if template_format == "f-string":
+            content = arg.format(**kwargs)
+        else:
+            content = arg % kwargs
+        messages.append({"role": "user", "content": content})
+
+    ollama_model = os.getenv("OLLAMA_MODEL", "deepseek-v4-pro")
+    response = ollama_client.chat(
+        model=ollama_model,
+        messages=messages,
+        stream=False,
+    )
+    raw = response.message.content
+    logging.info(f"invoke_llm_ollama model={ollama_model}: {raw[:300]}...")
+
+    if model:
+        parser = YamlOutputParser(pydantic_object=model)
+        return parser.parse(raw)
+    return raw
 
 
 def invoke_llm(

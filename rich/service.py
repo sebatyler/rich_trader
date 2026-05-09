@@ -42,6 +42,7 @@ from core.indicators import rsi as calc_rsi
 from core.indicators import volume_ma as calc_volume_ma
 from core.llm import invoke_gemini_search
 from core.llm import invoke_llm
+from core.llm import invoke_llm_ollama
 from core.market_time import compute_market_time
 from core.parameter_optimization import create_optimization_payload
 from core.parameter_optimization import request_optimized_parameters
@@ -1072,11 +1073,11 @@ Rules:
             recommendations=[],
         )
 
-    return invoke_llm(
+    return invoke_llm_ollama(
         prompt,
         all_data,
         model=MultiCryptoRecommendation,
-        with_fallback=with_fallback,
+        template_format="f-string",
         **kwargs,
     )
 
