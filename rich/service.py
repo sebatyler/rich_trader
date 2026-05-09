@@ -2764,6 +2764,24 @@ class BybitMechanicalTrader:
         conditions_long = []
         conditions_short = []
 
+        c0_adx = ind["adx"] >= p.adx_min_threshold
+        conditions_long.append(
+            (
+                "ADX trend strength ({:.1f} >= {:.1f})".format(
+                    ind["adx"], p.adx_min_threshold
+                ),
+                c0_adx,
+            )
+        )
+        conditions_short.append(
+            (
+                "ADX trend strength ({:.1f} >= {:.1f})".format(
+                    ind["adx"], p.adx_min_threshold
+                ),
+                c0_adx,
+            )
+        )
+
         c1_volatility_breakout_long = ind["atr_ratio"] >= p.atr_breakout_ratio
         c1_volatility_breakout_short = ind["atr_ratio"] >= p.atr_breakout_ratio
         conditions_long.append(
@@ -2899,10 +2917,10 @@ class BybitMechanicalTrader:
         action = None
         score_gap = abs(cond["met_long"] - cond["met_short"])
 
-        if cond["met_long"] >= 4 and score_gap >= 3:
+        if cond["met_long"] >= 5 and score_gap >= 3:
             if cond["met_long"] > cond["met_short"]:
                 action = "LONG"
-        elif cond["met_short"] >= 4 and score_gap >= 3:
+        elif cond["met_short"] >= 5 and score_gap >= 3:
             if cond["met_short"] > cond["met_long"]:
                 action = "SHORT"
 
@@ -2927,11 +2945,29 @@ class BybitMechanicalTrader:
         if not signal.action:
             return False
 
-        open_trades = BybitMechanicalTrade.objects.filter(
-            symbol=self.symbol, is_open=True, side=signal.action
-        )
+        cooldown = timedelta(minutes=self.params.entry_cooldown_minutes)
+        recent_same_side = BybitMechanicalTrade.objects.filter(
+            symbol=self.symbol,
+            side=signal.action,
+            is_open=True,
+            opened_at__gte=timezone.now() - cooldown,
+        ).exists()
 
-        return not open_trades.exists()
+        if recent_same_side:
+            logging.info(f"Cooldown active: {signal.action} {self.symbol}")
+            return False
+
+        today = timezone.localdate()
+        today_count = BybitMechanicalTrade.objects.filter(
+            symbol=self.symbol,
+            created__date=today,
+        ).count()
+
+        if today_count >= self.params.daily_max_trades:
+            logging.info(f"Daily max trades reached: {today_count}/{self.params.daily_max_trades}")
+            return False
+
+        return True
 
     def _execute_entry(self, signal):
         leverage = self._calculate_leverage(signal.indicators)
