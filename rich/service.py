@@ -2611,11 +2611,53 @@ def save_portfolio_snapshot(user, balances=None):
     )
 
 
-def run_bybit_mechanical_trading(symbol="BTCUSDT", paper_mode=None):
+def run_bybit_mechanical_trading(symbols=None, paper_mode=None):
+    if symbols is None:
+        symbols = ["BTCUSDT", "ETHUSDT", "XRPUSDT", "SOLUSDT"]
     if paper_mode is None:
         paper_mode = getattr(settings, "BYBIT_PAPER_MODE", True)
-    trader = BybitMechanicalTrader(symbol=symbol, paper_mode=paper_mode)
-    trader.run()
+    
+    best_score = -1
+    best_symbol = None
+    best_signal = None
+    
+    for symbol in symbols:
+        try:
+            trader = BybitMechanicalTrader(symbol=symbol, paper_mode=paper_mode)
+            signal = trader._generate_signal()
+            
+            if signal.action:
+                if signal.action == "LONG":
+                    score = signal.score_long * 10 + abs(signal.score_long - signal.score_short)
+                else:
+                    score = signal.score_short * 10 + abs(signal.score_short - signal.score_long)
+                
+                logging.info(f"{symbol} {signal.action} score={score:.1f} (L:{signal.score_long} S:{signal.score_short})")
+                
+                if score > best_score:
+                    best_score = score
+                    best_symbol = symbol
+                    best_signal = signal
+                    best_trader = trader
+        except Exception as e:
+            logging.warning(f"Failed to scan {symbol}: {e}")
+    
+    if best_symbol and best_signal and best_score >= 50:
+        logging.info(f"Best opportunity: {best_symbol} {best_signal.action} score={best_score:.1f}")
+        try:
+            if best_trader._should_enter(best_signal):
+                best_trader._execute_entry(best_signal)
+        except Exception as e:
+            logging.error(f"Failed to enter {best_symbol}: {e}")
+    else:
+        logging.info("No high-confidence opportunity found (score < 50)")
+    
+    for symbol in symbols:
+        try:
+            trader = BybitMechanicalTrader(symbol=symbol, paper_mode=paper_mode)
+            trader._check_exits()
+        except Exception as e:
+            logging.warning(f"Failed to check exits for {symbol}: {e}")
 
 
 def bybit_daily_review(notify=True):
