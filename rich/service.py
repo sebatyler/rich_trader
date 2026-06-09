@@ -2641,6 +2641,8 @@ def run_bybit_mechanical_trading(symbols=None, paper_mode=None):
                     best_trader = trader
         except Exception as e:
             logging.warning(f"Failed to scan {symbol}: {e}")
+        
+        time.sleep(1)
     
     if best_symbol and best_signal and best_score >= 40:
         logging.info(f"Best opportunity: {best_symbol} {best_signal.action} score={best_score:.1f}")
@@ -2658,6 +2660,7 @@ def run_bybit_mechanical_trading(symbols=None, paper_mode=None):
             trader._check_exits()
         except Exception as e:
             logging.warning(f"Failed to check exits for {symbol}: {e}")
+        time.sleep(1)
 
 
 def bybit_daily_review(notify=True):
