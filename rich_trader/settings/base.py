@@ -135,7 +135,6 @@ else:
     }
 
 DATABASES = {"default": default_db}
-print({k: v for k, v in DATABASES["default"].items() if k != "PASSWORD"})
 
 
 # Password validation

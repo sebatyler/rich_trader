@@ -2642,7 +2642,7 @@ def run_bybit_mechanical_trading(symbols=None, paper_mode=None):
         except Exception as e:
             logging.warning(f"Failed to scan {symbol}: {e}")
     
-    if best_symbol and best_signal and best_score >= 50:
+    if best_symbol and best_signal and best_score >= 40:
         logging.info(f"Best opportunity: {best_symbol} {best_signal.action} score={best_score:.1f}")
         try:
             if best_trader._should_enter(best_signal):
@@ -2650,7 +2650,7 @@ def run_bybit_mechanical_trading(symbols=None, paper_mode=None):
         except Exception as e:
             logging.error(f"Failed to enter {best_symbol}: {e}")
     else:
-        logging.info("No high-confidence opportunity found (score < 50)")
+        logging.info("No high-confidence opportunity found (score < 40)")
     
     for symbol in symbols:
         try:
@@ -2959,10 +2959,10 @@ class BybitMechanicalTrader:
         action = None
         score_gap = abs(cond["met_long"] - cond["met_short"])
 
-        if cond["met_long"] >= 5 and score_gap >= 3:
+        if cond["met_long"] >= p.min_conditions_for_entry and score_gap >= p.min_score_gap:
             if cond["met_long"] > cond["met_short"]:
                 action = "LONG"
-        elif cond["met_short"] >= 5 and score_gap >= 3:
+        elif cond["met_short"] >= p.min_conditions_for_entry and score_gap >= p.min_score_gap:
             if cond["met_short"] > cond["met_long"]:
                 action = "SHORT"
 
@@ -3024,9 +3024,9 @@ class BybitMechanicalTrader:
             entry_rsi=signal.indicators.get("rsi"),
             entry_macd_hist=signal.indicators.get("macd_hist"),
             entry_adx=signal.indicators.get("adx"),
-            entry_score=signal.score_long
+            entry_score=signal.score_long * 10 + abs(signal.score_long - signal.score_short)
             if signal.action == "LONG"
-            else signal.score_short,
+            else signal.score_short * 10 + abs(signal.score_short - signal.score_long),
             is_open=True,
         )
 

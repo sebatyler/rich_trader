@@ -207,6 +207,7 @@ class BybitMechanicalSignalAdmin(ModelAdmin):
         "adx",
         "score_long",
         "score_short",
+        "conditions_met",
         "action",
         "created",
     )
@@ -249,6 +250,8 @@ class BybitMechanicalParameterAdmin(ModelAdmin):
         "take_profit_pct",
         "base_leverage",
         "position_size_pct",
+        "min_conditions_for_entry",
+        "min_score_gap",
         "created",
     )
     list_filter = ("review_lookback_hours", "base_leverage")
