@@ -296,3 +296,9 @@ tmp/
 
 # oh-my-opencode
 .sisyphus
+
+# cokacdir (Telegram bot agent config - dynamically generated per session)
+AGENTS.md
+.AGENTS.md.cokacdir-lock
+.AGENTS.md.cokacdir-no-original
+.AGENTS.md.cokacdir-state-v2.*
