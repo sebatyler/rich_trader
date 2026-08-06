@@ -214,6 +214,9 @@ CRONJOBS = [
         ">> /tmp/bybit_mechanical.log 2>&1",
     ),
     ("30 0 * * *", "rich.service.bybit_daily_review", ">> /tmp/bybit_review.log 2>&1"),
+    # Coinone API IP 제한으로 Zappa event 대신 고정 IP cron으로 이관.
+    # 기존 Zappa event: cron(15 * * * ? *) (매 시간 15분)
+    ("15 * * * *", "rich.service.auto_trading", ">> /tmp/auto_trading.log 2>&1"),
 ]
 CRONTAB_COMMAND_PREFIX = "USE_DB_URL=1"
 CRONTAB_DJANGO_SETTINGS_MODULE = "rich_trader.settings.prod"
