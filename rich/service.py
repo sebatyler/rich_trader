@@ -938,6 +938,7 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
 2) BUY Constraints (Optimal Entry Points):
    - amount ≥ {trading_config.min_trade_amount}, multiple of {trading_config.step_amount}
    - Single BUY ≤ 30% of available KRW, total BUY ≤ 50% of KRW
+   - During crash/dip conditions (see 2b below), single BUY limit is raised to 50% of available KRW to allow deploying the dip-buying reserve
    - Execute BUY as MARKET orders only (no limit/post-only)
    - Recommend BUY when current market conditions suggest favorable entry:
      a) Strong upward momentum indicators (RSI, MACD, price action alignment) OR oversold rebound setup (sharp prior drop + early 1h rebound signals)
@@ -947,6 +948,21 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
      e) Expected price appreciation justifies fees (≥ 0.1% after 0.04% round-trip fees)
    - Consider recent trading history: If coin was sold recently, compare current price vs recent sell prices. Re-entry can be valid at meaningfully lower prices when short-term setup improves; be more cautious when price is at/above recent sell levels
    - If coin was bought recently, evaluate if additional buying improves position or if holding is better
+
+ 2b) DIP-BUYING / CRASH RESPONSE (CRITICAL — this is the primary purpose of the KRW reserve):
+   - The KRW balance is NOT just idle cash — it is a strategic reserve maintained specifically for buying during market crashes and sharp dips.
+   - Use drawdown_from_30d_high_pct and drawdown_from_90d_high_pct from the snapshot to assess crash severity for each coin:
+     * drawdown_from_30d_high_pct ≤ -10% (price 10%+ below 30-day high) → moderate dip, evaluate entry
+     * drawdown_from_30d_high_pct ≤ -20% OR drawdown_from_90d_high_pct ≤ -25% → significant crash, actively seek entry
+     * drawdown_from_90d_high_pct ≤ -40% → deep crash, strong BUY bias unless fundamentals are broken
+   - When crash/dip conditions are detected:
+     i)  Do NOT wait for momentum confirmation — momentum will be negative during crashes. RSI oversold (RSI < 30), Bollinger lower band touch, and large drawdowns are sufficient signals.
+     ii) Prioritize coins with the deepest drawdowns and strongest fundamentals (large market cap, established projects).
+     iii) Deploy KRW reserve aggressively — it is acceptable for KRW ratio to drop below 10% temporarily when a genuine crash opportunity exists. The reserve exists to be used, not hoarded.
+     iv) Size positions larger than normal momentum buys — crashes are rare and the reserve should be deployed meaningfully, not in tiny increments.
+     v)  In reasoning, explicitly state whether crash/dip conditions are present and how much of the reserve is being deployed.
+   - After deploying the reserve during a crash, rebuild it gradually during recovery by selling into strength (taking partial profits on bounces).
+   - WARNING: Do NOT confuse a slow grinding downtrend with a crash. A crash is a SHARP, significant drop from recent highs (visible in drawdown metrics). A coin slowly bleeding lower over weeks is not necessarily a dip-buy opportunity.
 
 3) SELL Constraints (Optimal Exit Points & Risk Management):
    - quantity must respect exchange increments (qty_unit) and min_qty~max_qty range
@@ -979,10 +995,15 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Portfolio health check: Assess current portfolio risk and adjust recommendations accordingly
    - Use volatility indicators (ATR) to inform position sizing decisions
 
-6) Portfolio Balance (KRW Ratio):
-   - After ALL recommended BUY/SELL are done, evaluate if KRW ratio is appropriate (target: 10%~50%)
-   - If KRW ratio is above target, allow selective entries when short-term rebound opportunities are clear
-   - In extremely volatile/uncertain conditions, maintaining a higher KRW ratio is still acceptable for risk control
+6) Portfolio Balance (KRW Reserve for Dip-Buying):
+   - The KRW balance serves a DUAL purpose: (1) risk control buffer and (2) strategic dip-buying reserve.
+   - Target: maintain ≥ 10% KRW ratio during normal market conditions as a reserve for crash opportunities.
+   - After ALL recommended BUY/SELL are done, evaluate the resulting KRW ratio:
+     * Normal conditions: target 10%~50% KRW ratio. If above 50%, consider selective entries when short-term opportunities are clear.
+     * Crash/dip conditions (drawdown_from_30d_high_pct ≤ -10% for target coins): it is EXPECTED and DESIRED that KRW ratio drops below 10% — the reserve is being deployed for its intended purpose. Do not block dip-buys just to maintain the 10% floor.
+     * Rebuilding phase (after deploying reserve): gradually sell into bounces to rebuild KRW back toward 10%~50%.
+   - In extremely volatile/uncertain conditions WITHOUT a clear crash opportunity, maintaining a higher KRW ratio is still acceptable for risk control.
+   - CRITICAL: The 10% floor is a NORMAL-condition target, NOT a hard limit during crashes. Hoarding cash while coins crash defeats the entire purpose of the reserve.
 
 7) Recent Trading Analysis (Learn from History):
    - Review recent trades from CSV data to inform current decisions:
@@ -1005,6 +1026,7 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Don't feel pressured to trade - sometimes the best decision is to do nothing
    - Assess if market conditions are clear enough to make confident decisions
    - Consider the timeframe: session-slot windows (short-to-medium term)
+   - CRASH DETECTION (check every cycle): Scan drawdown_from_30d_high_pct and drawdown_from_90d_high_pct for each coin in the snapshot. If any coin shows drawdown_from_30d_high_pct ≤ -10% OR drawdown_from_90d_high_pct ≤ -20%, flag this as a "crash/dip opportunity" and activate the dip-buying protocol (see section 2b). This takes priority over normal trading logic — the KRW reserve exists precisely for these moments.
 
 9) Spread / Liquidity Safety (STRICT):
    - Use spread_pct from Market snapshot.
@@ -1018,11 +1040,13 @@ scratchpad: |
   [현재 시장 상황과 최근 거래 분석 (한국어). 핵심 포인트만 3-4줄로 작성]
   - 제공된 데이터(가격, 지표, 뉴스)를 기반으로 한 현재 시장 평가
   - 최근 거래 패턴 분석 및 교훈
+  - 폭락/저점 기회 여부 명시 (drawdown 지표 기반): "폭락 기회 있음/없음" 반드시 포함
 
 reasoning: |
   [현재 시점에서의 최적 매매 전략 설명 (한국어). 핵심 포인트만 3-4줄로 작성]
   - 각 추천의 근거 (현재 시장 조건, 예상 수익성, 리스크 평가)
   - 거래를 하지 않는 경우, 그 이유 설명
+  - 폭락 상황인 경우: KRW 예비 비축을 얼마나 deploy 하는지 명시
 
 recommendations:
   - action: "BUY"    # or "SELL"
