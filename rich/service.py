@@ -1001,9 +1001,10 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - After ALL recommended BUY/SELL are done, evaluate the resulting KRW ratio:
      * Normal conditions: target 10%~50% KRW ratio. If above 50%, consider selective entries when short-term opportunities are clear.
      * Crash/dip conditions (drawdown_from_30d_high_pct ≤ -10% for target coins): it is EXPECTED and DESIRED that KRW ratio drops below 10% — the reserve is being deployed for its intended purpose. Do not block dip-buys just to maintain the 10% floor.
-     * Rebuilding phase (after deploying reserve): gradually sell into bounces to rebuild KRW back toward 10%~50%.
+     * Bull/rally conditions: if KRW ratio has fallen below 10% due to coin price appreciation (NOT due to deliberate reserve deployment), recommend partial profit-taking on coins with the largest gains to rebuild the reserve back toward 10%~20%. This ensures cash is available when the next dip/crash arrives.
+     * Rebuilding phase (after deploying reserve or after bull-driven ratio decline): gradually sell into strength to rebuild KRW back toward 10%~50%.
    - In extremely volatile/uncertain conditions WITHOUT a clear crash opportunity, maintaining a higher KRW ratio is still acceptable for risk control.
-   - CRITICAL: The 10% floor is a NORMAL-condition target, NOT a hard limit during crashes. Hoarding cash while coins crash defeats the entire purpose of the reserve.
+   - CRITICAL: The 10% floor is a NORMAL-condition target, NOT a hard limit during crashes. Hoarding cash while coins crash defeats the entire purpose of the reserve. BUT — letting the reserve vanish during a bull run without rebuilding is equally bad: the next crash will arrive with no cash to deploy.
 
 7) Recent Trading Analysis (Learn from History):
    - Review recent trades from CSV data to inform current decisions:
@@ -1027,6 +1028,10 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Assess if market conditions are clear enough to make confident decisions
    - Consider the timeframe: session-slot windows (short-to-medium term)
    - CRASH DETECTION (check every cycle): Scan drawdown_from_30d_high_pct and drawdown_from_90d_high_pct for each coin in the snapshot. If any coin shows drawdown_from_30d_high_pct ≤ -10% OR drawdown_from_90d_high_pct ≤ -20%, flag this as a "crash/dip opportunity" and activate the dip-buying protocol (see section 2b). This takes priority over normal trading logic — the KRW reserve exists precisely for these moments.
+   - BULL/RALLY DETECTION (check every cycle): Scan ret_7d_pct and ret_30d_pct for each coin. If multiple coins show ret_7d_pct ≥ 10% OR ret_30d_pct ≥ 20%, the market is in a bull/rally phase. In this state:
+     * Do NOT chase entries at highs — momentum buys at peaks have poor risk-reward.
+     * DO consider partial profit-taking on coins with large gains to rebuild the KRW reserve (see section 6 bull/rally conditions).
+     * Be patient: bull runs create the cash reserves needed for the next crash. Selling into strength now is preparation for buying the next dip.
 
 9) Spread / Liquidity Safety (STRICT):
    - Use spread_pct from Market snapshot.
@@ -1041,12 +1046,14 @@ scratchpad: |
   - 제공된 데이터(가격, 지표, 뉴스)를 기반으로 한 현재 시장 평가
   - 최근 거래 패턴 분석 및 교훈
   - 폭락/저점 기회 여부 명시 (drawdown 지표 기반): "폭락 기회 있음/없음" 반드시 포함
+  - 상승/과열 여부 명시 (ret_7d/30d 기반): "상승장/과열 구간" 또는 "정상 구간" 반드시 포함
 
 reasoning: |
   [현재 시점에서의 최적 매매 전략 설명 (한국어). 핵심 포인트만 3-4줄로 작성]
   - 각 추천의 근거 (현재 시장 조건, 예상 수익성, 리스크 평가)
   - 거래를 하지 않는 경우, 그 이유 설명
   - 폭락 상황인 경우: KRW 예비 비축을 얼마나 deploy 하는지 명시
+  - 상승장인 경우: KRW 비축 리빌드를 위한 partial profit-taking 여부 명시
 
 recommendations:
   - action: "BUY"    # or "SELL"
