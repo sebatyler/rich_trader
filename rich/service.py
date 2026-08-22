@@ -935,34 +935,59 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Analyze recent trading history: If a coin was traded recently, evaluate whether current conditions justify another trade or if waiting is better
    - Quality over quantity: Only recommend trades when they genuinely improve portfolio position or manage risk effectively
 
-2) BUY Constraints (Optimal Entry Points):
+2) BUY Constraints (Regime-Aware Entry):
    - amount ≥ {trading_config.min_trade_amount}, multiple of {trading_config.step_amount}
-   - Single BUY ≤ 30% of available KRW, total BUY ≤ 50% of KRW
-   - During crash/dip conditions (see 2b below), single BUY limit is raised to 50% of available KRW to allow deploying the dip-buying reserve
    - Execute BUY as MARKET orders only (no limit/post-only)
-   - Recommend BUY when current market conditions suggest favorable entry:
-     a) Strong upward momentum indicators (RSI, MACD, price action alignment) OR oversold rebound setup (sharp prior drop + early 1h rebound signals)
-     b) Positive news/sentiment OR technical breakout confirmation OR evidence of short-term mean reversion after oversold conditions
-     c) Price is at reasonable levels (not FOMO buying at recent highs)
-     d) Volume confirms genuine interest
-     e) Expected price appreciation justifies fees (≥ 0.1% after 0.04% round-trip fees)
+   - Expected price appreciation must justify fees (≥ 0.1% after 0.04% round-trip fees)
    - Consider recent trading history: If coin was sold recently, compare current price vs recent sell prices. Re-entry can be valid at meaningfully lower prices when short-term setup improves; be more cautious when price is at/above recent sell levels
    - If coin was bought recently, evaluate if additional buying improves position or if holding is better
+   - BUY rules depend on the REGIME detected in section 8. Apply the matching protocol below:
 
- 2b) DIP-BUYING / CRASH RESPONSE (CRITICAL — this is the primary purpose of the KRW reserve):
-   - The KRW balance is NOT just idle cash — it is a strategic reserve maintained specifically for buying during market crashes and sharp dips.
-   - Use drawdown_from_30d_high_pct and drawdown_from_90d_high_pct from the snapshot to assess crash severity for each coin:
-     * drawdown_from_30d_high_pct ≤ -10% (price 10%+ below 30-day high) → moderate dip, evaluate entry
-     * drawdown_from_30d_high_pct ≤ -20% OR drawdown_from_90d_high_pct ≤ -25% → significant crash, actively seek entry
-     * drawdown_from_90d_high_pct ≤ -40% → deep crash, strong BUY bias unless fundamentals are broken
-   - When crash/dip conditions are detected:
-     i)  Do NOT wait for momentum confirmation — momentum will be negative during crashes. RSI oversold (RSI < 30), Bollinger lower band touch, and large drawdowns are sufficient signals.
-     ii) Prioritize coins with the deepest drawdowns and strongest fundamentals (large market cap, established projects).
-     iii) Deploy KRW reserve aggressively — it is acceptable for KRW ratio to drop below 10% temporarily when a genuine crash opportunity exists. The reserve exists to be used, not hoarded.
-     iv) Size positions larger than normal momentum buys — crashes are rare and the reserve should be deployed meaningfully, not in tiny increments.
-     v)  In reasoning, explicitly state whether crash/dip conditions are present and how much of the reserve is being deployed.
-   - After deploying the reserve during a crash, rebuild it gradually during recovery by selling into strength (taking partial profits on bounces).
-   - WARNING: Do NOT confuse a slow grinding downtrend with a crash. A crash is a SHARP, significant drop from recent highs (visible in drawdown metrics). A coin slowly bleeding lower over weeks is not necessarily a dip-buy opportunity.
+ 2a) CRASH REGIME — Aggressive Reserve Deploy:
+   - Trigger: drawdown_from_30d_high_pct ≤ -20% OR drawdown_from_90d_high_pct ≤ -25%, AND ret_7d_pct ≤ -10% (sharp recent drop)
+   - Entry: NO momentum confirmation needed. RSI < 30, Bollinger lower-band touch, or deep drawdown is sufficient.
+   - Sizing: single BUY up to 50% of available KRW. Deploy in 2-3 tranches across sessions (crash can extend).
+   - Prioritize coins with deepest drawdowns + strongest fundamentals (large market cap).
+   - KRW reserve: deploy aggressively — ratio may drop below 10%. This is correct.
+   - PITFALL: do NOT go all-in in one session (tranche to avoid catching a falling knife). Do NOT buy coins with broken fundamentals even at -40%.
+
+ 2b) PULLBACK-IN-RALLY REGIME — Buy the Dip (THE MISSING MIDDLE):
+   - Trigger: ret_30d_pct ≥ 10% (trend STILL up), AND drawdown_from_30d_high_pct between -3% and -10% (dipped from highs), AND ema20 > ema50 (uptrend structure intact), AND RSI(1d) cooled to 50–65
+   - Entry: momentum confirmation NOT required, but TREND confirmation IS required (ema20 > ema50 must hold).
+   - Sizing: single BUY up to 20-25% of available KRW. Deploy up to HALF the reserve — keep the other half for a deeper pullback or real crash.
+   - Target: sell the bounce when price recovers toward prior high (drawdown back to ≥ -2%) or RSI(1d) back ≥ 70.
+   - KRW reserve: deploy up to half. Keep the other half.
+   - PITFALL: if ema20 crosses below ema50, ABORT — reclassify to downtrend and stop buying. Do NOT confuse pullback with trend reversal.
+   - This is the regime where the system must ACT, not watch. A -5% dip in a coin that's up 20% over 30 days with EMA still bullish is a BUY opportunity, not "관망."
+
+ 2c) SIDEWAYS REGIME — Range-Trade the Edges Only:
+   - Trigger: |ret_30d_pct| ≤ 5%, drawdown_from_30d_high_pct between -5% and 0%, RSI(1d) 40–60, bb_pos 0.3–0.7
+   - Entry: BUY only at range support — bb_pos ≤ 0.2 (near lower band) AND RSI(1d) ≤ 40. No breakout chasing.
+   - Sizing: single BUY ≤ 15% of available KRW (half normal). Range trades have capped upside.
+   - KRW reserve: keep 30–50%. Do NOT deploy reserve here.
+   - PITFALL: do NOT overtrade a tight range. Skip if expected move < 0.5% after fees.
+
+ 2d) RECOVERY REGIME — Cautious Re-entry:
+   - Trigger: price crossed back above ema20, RSI(1d) rising through 40–55, macd_hist turning positive, drawdown improving
+   - Entry: BUY on confirmed recovery — price > ema20 AND macd_hist > 0 AND RSI(1d) rising. Smaller size.
+   - Sizing: single BUY ≤ 15% of available KRW. Momentum is still fragile.
+   - KRW reserve: rebuild toward 10–20% by selling crash-buys into the bounce (partial sells, 20-30% at a time).
+   - PITFALL: do NOT sell everything too early (partial sells only). Do NOT redeploy before reserve is rebuilt.
+
+ 2e) STRONG RALLY REGIME — No New BUY (Harvest, Don't Plant):
+   - Trigger: ret_30d_pct ≥ 10%, drawdown_from_30d_high_pct ≥ -3% (at/near highs), RSI(1d) ≥ 70, price > ema20 > ema50
+   - Entry: NO new BUY at highs. The only exception: a FRESH breakout with volume > 1.5× volume_ma20 on a coin that hasn't already run 20%+.
+   - Sizing: n/a for buys.
+   - KRW reserve: rebuild toward 20–30% by trimming positions with largest gains.
+   - PITFALL: do NOT FOMO-chase. Rally = harvest time, not planting time.
+
+ 2f) DOWNTREND REGIME — Stay Out, Hold Cash:
+   - Trigger: NOT crash (drawdown_from_30d_high_pct between -10% and -20%), AND price < ema20 < ema50 (or ema20 < ema50), AND ret_30d_pct < 0
+   - Entry: NO BUY. This is a grinding downtrend, not a dip. Do NOT average down.
+   - Sizing: n/a for buys.
+   - KRW reserve: keep KRW ≥ 50%. Cash is king in a downtrend.
+   - If holding losing positions: SELL/trim if ema20 < ema50 and RSI(1d) < 45 (cut losers early).
+   - PITFALL: do NOT call a bottom without an EMA-cross confirmation. "It's cheap, it must bounce" is a mean-reversion trap.
 
 3) SELL Constraints (Optimal Exit Points & Risk Management):
    - quantity must respect exchange increments (qty_unit) and min_qty~max_qty range
@@ -995,16 +1020,19 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
    - Portfolio health check: Assess current portfolio risk and adjust recommendations accordingly
    - Use volatility indicators (ATR) to inform position sizing decisions
 
-6) Portfolio Balance (KRW Reserve for Dip-Buying):
-   - The KRW balance serves a DUAL purpose: (1) risk control buffer and (2) strategic dip-buying reserve.
-   - Target: maintain ≥ 10% KRW ratio during normal market conditions as a reserve for crash opportunities.
-   - After ALL recommended BUY/SELL are done, evaluate the resulting KRW ratio:
-     * Normal conditions: target 10%~50% KRW ratio. If above 50%, consider selective entries when short-term opportunities are clear.
-     * Crash/dip conditions (drawdown_from_30d_high_pct ≤ -10% for target coins): it is EXPECTED and DESIRED that KRW ratio drops below 10% — the reserve is being deployed for its intended purpose. Do not block dip-buys just to maintain the 10% floor.
-     * Bull/rally conditions: if KRW ratio has fallen below 10% due to coin price appreciation (NOT due to deliberate reserve deployment), recommend partial profit-taking on coins with the largest gains to rebuild the reserve back toward 10%~20%. This ensures cash is available when the next dip/crash arrives.
-     * Rebuilding phase (after deploying reserve or after bull-driven ratio decline): gradually sell into strength to rebuild KRW back toward 10%~50%.
-   - In extremely volatile/uncertain conditions WITHOUT a clear crash opportunity, maintaining a higher KRW ratio is still acceptable for risk control.
-   - CRITICAL: The 10% floor is a NORMAL-condition target, NOT a hard limit during crashes. Hoarding cash while coins crash defeats the entire purpose of the reserve. BUT — letting the reserve vanish during a bull run without rebuilding is equally bad: the next crash will arrive with no cash to deploy.
+6) Portfolio Balance (Regime-Indexed KRW Reserve):
+   - The KRW balance is a STRATEGIC RESERVE — a battery that charges in rallies and discharges in crashes/pullbacks.
+   - The reserve target depends on the CURRENT REGIME (see section 8 for regime classification):
+     * Crash: 0–10% — deploy aggressively (tranched)
+     * Pullback-in-Rally: 20–40% — deploy up to half, keep half for deeper dip
+     * Downtrend: ≥ 50% — hoard cash, cut losers
+     * Sideways: 30–50% — hold, range-trade only at edges
+     * Strong Rally: 20–30% — trim into strength to rebuild
+     * Recovery: 10–20% — rebuild by partial-selling crash-buys into bounces
+   - After ALL recommended BUY/SELL are done, evaluate the resulting KRW ratio against the regime target.
+   - If KRW ratio is BELOW the regime target after trades, that's acceptable when the regime calls for deployment (crash, pullback). If it's below target during a regime that calls for hoarding (downtrend, sideways), reduce future BUY sizes.
+   - If KRW ratio is ABOVE the regime target during rally/recovery, use partial profit-taking to bring it down toward target — this is how the reserve charges.
+   - CRITICAL: Hoarding cash while coins crash defeats the purpose of the reserve. Letting the reserve vanish during a rally without rebuilding is equally bad. The reserve must FLOW — discharge in dips, charge in rallies.
 
 7) Recent Trading Analysis (Learn from History):
    - Review recent trades from CSV data to inform current decisions:
@@ -1021,17 +1049,35 @@ Key Rules (CRITICAL - FOLLOW EXACTLY):
      * Identify patterns in successful vs unsuccessful trades
      * Use patterns to inform decisions, but remain flexible to changing conditions
 
-8) Current Market Evaluation:
+8) Market Regime Classification (MANDATORY — classify EVERY cycle before making recommendations):
    - Consider current market conditions: time of day, market hours (Asian/European/US), volatility
-   - Evaluate whether NOW is a good time to trade or if waiting is better
    - Don't feel pressured to trade - sometimes the best decision is to do nothing
-   - Assess if market conditions are clear enough to make confident decisions
    - Consider the timeframe: session-slot windows (short-to-medium term)
-   - CRASH DETECTION (check every cycle): Scan drawdown_from_30d_high_pct and drawdown_from_90d_high_pct for each coin in the snapshot. If any coin shows drawdown_from_30d_high_pct ≤ -10% OR drawdown_from_90d_high_pct ≤ -20%, flag this as a "crash/dip opportunity" and activate the dip-buying protocol (see section 2b). This takes priority over normal trading logic — the KRW reserve exists precisely for these moments.
-   - BULL/RALLY DETECTION (check every cycle): Scan ret_7d_pct and ret_30d_pct for each coin. If multiple coins show ret_7d_pct ≥ 10% OR ret_30d_pct ≥ 20%, the market is in a bull/rally phase. In this state:
-     * Do NOT chase entries at highs — momentum buys at peaks have poor risk-reward.
-     * DO consider partial profit-taking on coins with large gains to rebuild the KRW reserve (see section 6 bull/rally conditions).
-     * Be patient: bull runs create the cash reserves needed for the next crash. Selling into strength now is preparation for buying the next dip.
+
+   REGIME CLASSIFICATION (check in priority order — first match wins):
+   Classify EACH coin, then derive the market regime from BTC + majority of coins.
+
+   1) CRASH: drawdown_from_30d_high_pct ≤ -20% OR drawdown_from_90d_high_pct ≤ -25%, AND ret_7d_pct ≤ -10% (sharp, recent)
+   2) DOWNTREND: NOT crash, AND price < ema20 < ema50 (or ema20 < ema50), AND ret_30d_pct < 0, AND drawdown_from_30d_high_pct between -10% and -20%
+   3) SIDEWAYS: |ret_30d_pct| ≤ 5%, AND drawdown_from_30d_high_pct between -5% and 0%, AND RSI(1d) 40–60, AND bb_pos 0.3–0.7
+   4) STRONG RALLY: ret_30d_pct ≥ 10%, AND drawdown_from_30d_high_pct ≥ -3% (at/near highs), AND RSI(1d) ≥ 70, AND price > ema20 > ema50
+   5) PULLBACK-IN-RALLY: ret_30d_pct ≥ 10% (trend STILL up), AND drawdown_from_30d_high_pct between -3% and -10% (dipped), AND ema20 > ema50 (uptrend intact), AND RSI(1d) 50–65 (cooled from >70)
+   6) RECOVERY: price crossed back above ema20, AND RSI(1d) rising through 40–55, AND macd_hist turning positive, AND drawdown improving
+
+   KEY DISTINCTIONS:
+   - Pullback vs Sideways: both have dd30 ~-5% and RSI ~55. Differentiator: ret_30d_pct ≥ 10% + ema20 > ema50 (trend still up = pullback; flat = sideways).
+   - Pullback vs Downtrend: both have negative short-term action. Differentiator: ema20 > ema50 (pullback keeps bullish structure; downtrend has bearish cross).
+   - ret_7d_pct is a CONFIRMATION input, NOT a classification input. Use ret_30d_pct + EMA alignment + drawdown for classification.
+
+   REGIME TRANSITION DETECTION (check every cycle):
+   - Rally → Pullback: dd30 crosses below -3% while ret_30d ≥ 10% and ema20 > ema50 → switch from "trim" to "prepare dip-buy"
+   - Pullback → Downtrend: ema20 crosses below ema50 → ABORT dip-buying, reclassify to downtrend
+   - Pullback → Crash: dd30 crosses below -20% → escalate to full crash protocol
+   - Crash/Downtrend → Recovery: price crosses back above ema20 AND macd_hist flips positive → begin trimming into strength
+   - Recovery → Rally: ret_30d crosses ≥ 10% AND RSI(1d) ≥ 70 → switch to "trim, don't chase"
+   - Sideways → Breakout: volume > 1.5× volume_ma20 and bb_pos breaking out of 0.2–0.8 → reclassify to rally (up) or downtrend (down)
+
+   Once the regime is classified, apply the matching BUY protocol (section 2a-2f) and reserve policy (section 6).
 
 9) Spread / Liquidity Safety (STRICT):
    - Use spread_pct from Market snapshot.
@@ -1045,15 +1091,14 @@ scratchpad: |
   [현재 시장 상황과 최근 거래 분석 (한국어). 핵심 포인트만 3-4줄로 작성]
   - 제공된 데이터(가격, 지표, 뉴스)를 기반으로 한 현재 시장 평가
   - 최근 거래 패턴 분석 및 교훈
-  - 폭락/저점 기회 여부 명시 (drawdown 지표 기반): "폭락 기회 있음/없음" 반드시 포함
-  - 상승/과열 여부 명시 (ret_7d/30d 기반): "상승장/과열 구간" 또는 "정상 구간" 반드시 포함
+  - 시장 regime 명시 (반드시 포함): "CRASH" / "DOWNTREND" / "SIDEWAYS" / "STRONG RALLY" / "PULLBACK-IN-RALLY" / "RECOVERY" 중 하나
+  - regime 판단 근거 (drawdown, ret_30d, EMA 정렬, RSI 등)
 
 reasoning: |
   [현재 시점에서의 최적 매매 전략 설명 (한국어). 핵심 포인트만 3-4줄로 작성]
-  - 각 추천의 근거 (현재 시장 조건, 예상 수익성, 리스크 평가)
+  - 각 추천의 근거 (현재 regime, 진입 조건, 예상 수익성, 리스크 평가)
   - 거래를 하지 않는 경우, 그 이유 설명
-  - 폭락 상황인 경우: KRW 예비 비축을 얼마나 deploy 하는지 명시
-  - 상승장인 경우: KRW 비축 리빌드를 위한 partial profit-taking 여부 명시
+  - KRW reserve 상태: 현재 regime의 target 비율 대비 현재 비율, deploy/rebuild 여부
 
 recommendations:
   - action: "BUY"    # or "SELL"
